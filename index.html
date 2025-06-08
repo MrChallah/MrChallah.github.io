@@ -41,7 +41,15 @@ async function getAccurateCoords(){
 async function reverseGeocode(lat, lon){
   const geo = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`)
                     .then(r => r.json());
-  return geo.address.suburb || geo.address.road || geo.address.city || "Unknown";
+  const addr = geo.address;
+  const parts = [
+    addr.road || addr.suburb || "",     // Street / neighborhood
+    addr.city || addr.town || addr.village || "", // City / Town
+    addr.state || "",                   // State / Region
+    addr.country || ""                  // Country
+  ].filter(Boolean); // Remove empty items
+
+  return parts.join(", ");
 }
 
 async function getLocationAndWeather(){
