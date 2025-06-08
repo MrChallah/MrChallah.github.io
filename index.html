@@ -51,7 +51,7 @@ async function getLocationAndWeather(){
     placeEl.textContent = label;
 
     const w = await fetch(
-      `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&appid=${OWM_KEY}`
+      `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&lang=en&appid=${OWM_KEY}`
     ).then(r=>r.json());
 
     const c  = w.main.temp.toFixed(0);
