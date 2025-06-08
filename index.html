@@ -30,13 +30,16 @@ const weatherEl = document.getElementById('weather');
 const OWM_KEY   = '618628ae452ff89f0e4477fba20b9d5c'; // <= Write your API key there Jenny!!!
 async function getLocationAndWeather(){
   try{
-    // ---- ipapi.co returns JSON with city/region/lat/lon ----
-    const loc = await fetch('https://ipapi.co/json/').then(r=>r.json());
-    const city = loc.city || 'Unknown';            // e.g. "Shinjuku"
-    const region = loc.region_code ? `, ${loc.region_code}` : '';
-    const lat = loc.latitude, lon = loc.longitude; // floats
+    navigator.geolocation.getCurrentPosition(async pos => {
+  const lat = pos.coords.latitude;
+  const lon = pos.coords.longitude;
 
-    placeEl.textContent = city + region;
+  // Reverse geocode to get street-level label (using OpenStreetMap)
+  const geo = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`)
+                    .then(r => r.json());
+  const label = geo.address.suburb || geo.address.road || geo.address.neighbourhood || geo.address.city || "Unknown";
+
+  placeEl.textContent = label;
 
     // ---- pull weather ----
     const w = await fetch(
@@ -54,5 +57,5 @@ async function getLocationAndWeather(){
   }
 }
 getLocationAndWeather();
-setInterval(getLocationAndWeather, 600000); // refresh every 10 min
+setInterval(getLocationAndWeather, 90000); // refresh every 1.5 min
 </script></body></html>
