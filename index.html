@@ -28,29 +28,39 @@ tick(); setInterval(tick,1000);
 const placeEl   = document.getElementById('place');
 const weatherEl = document.getElementById('weather');
 const OWM_KEY   = '618628ae452ff89f0e4477fba20b9d5c'; // <= Write your API key there Jenny!!!
+async function getAccurateCoords(){
+  const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU", {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ considerIp: true })
+  });
+  const data = await res.json();
+  return data.location;
+}
+
+async function reverseGeocode(lat, lon){
+  const geo = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`)
+                    .then(r => r.json());
+  return geo.address.suburb || geo.address.road || geo.address.city || "Unknown";
+}
+
 async function getLocationAndWeather(){
-  try{
-    // ---- ipapi.co returns JSON with city/region/lat/lon ----
-    const loc = await fetch('https://ipapi.co/json/').then(r=>r.json());
-    const city = loc.city || 'Unknown';            // e.g. "Shinjuku"
-    const region = loc.region_code ? `, ${loc.region_code}` : '';
-    const lat = loc.latitude, lon = loc.longitude; // floats
+  try {
+    const { lat, lng } = await getAccurateCoords();
+    const label = await reverseGeocode(lat, lng);
+    placeEl.textContent = label;
 
-    placeEl.textContent = city + region;
-
-    // ---- pull weather ----
     const w = await fetch(
-      `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${OWM_KEY}`
+      `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lng}&units=metric&appid=${OWM_KEY}`
     ).then(r=>r.json());
 
     const c  = w.main.temp.toFixed(0);
     const f  = (c*9/5+32).toFixed(0);
-    const txt = w.weather[0].description.replace(/\b\w/g,s=>s.toUpperCase()); // “Few Clouds”
+    const txt = w.weather[0].description.replace(/\b\w/g,s=>s.toUpperCase());
     weatherEl.textContent = `${c}°C | ${f}°F, ${txt}`;
-  }catch(err){
-    console.error(err);
-    placeEl.textContent   = 'Location N/A';
-    weatherEl.textContent = 'Weather N/A';
+  } catch (err) {
+    placeEl.textContent = "Location N/A";
+    weatherEl.textContent = "Weather N/A";
   }
 }
 getLocationAndWeather();
