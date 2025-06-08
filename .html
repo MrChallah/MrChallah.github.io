@@ -1,0 +1,59 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+<style>
+html,body{margin:0;padding:0;background:transparent;color:#fff;font-family:sans-serif;}
+#info{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;}
+.row{display:flex;align-items:center;font-size:15px;font-weight:500;text-shadow:0 0 4px #000,0 0 8px #000;}
+.row i{width:18px;margin-right:6px;text-align:center;}
+</style></head><body>
+
+<div id="info">
+  <div class="row"><i class="fa-regular fa-clock"></i><span id="time">--:--:--</span></div>
+  <div class="row"><i class="fa-solid fa-location-dot"></i><span id="place">Detecting…</span></div>
+  <div class="row"><i class="fa-solid fa-cloud"></i><span id="weather">--°C</span></div>
+</div>
+
+<script>
+/* 1️⃣ live clock */
+function tick(){
+  const now  = new Date();
+  const offH = now.getTimezoneOffset()/-60;
+  const sign = offH>0?'-':'+';
+  document.getElementById('time').textContent =
+      `${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} GMT${sign}${Math.abs(offH)}`;
+}
+tick(); setInterval(tick,1000);
+
+/* 2️⃣ fetch IP-based location */
+const placeEl   = document.getElementById('place');
+const weatherEl = document.getElementById('weather');
+const OWM_KEY   = '618628ae452ff89f0e4477fba20b9d5c'; // <= Write your API key there Jenny!!!
+S
+async function getLocationAndWeather(){
+  try{
+    // ---- ipapi.co returns JSON with city/region/lat/lon ----
+    const loc = await fetch('https://ipapi.co/json/').then(r=>r.json());
+    const city = loc.city || 'Unknown';            // e.g. "Shinjuku"
+    const region = loc.region_code ? `, ${loc.region_code}` : '';
+    const lat = loc.latitude, lon = loc.longitude; // floats
+
+    placeEl.textContent = city + region;
+
+    // ---- pull weather ----
+    const w = await fetch(
+      `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${OWM_KEY}`
+    ).then(r=>r.json());
+
+    const c  = w.main.temp.toFixed(0);
+    const f  = (c*9/5+32).toFixed(0);
+    const txt = w.weather[0].description.replace(/\b\w/g,s=>s.toUpperCase()); // “Few Clouds”
+    weatherEl.textContent = `${c}°C | ${f}°F, ${txt}`;
+  }catch(err){
+    console.error(err);
+    placeEl.textContent   = 'Location N/A';
+    weatherEl.textContent = 'Weather N/A';
+  }
+}
+getLocationAndWeather();
+setInterval(getLocationAndWeather, 600000); // refresh every 10 min
+</script></body></html>
