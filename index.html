@@ -155,6 +155,36 @@
             };
           }
         } catch (e) { return null; }
+      },
+      
+      // Check for data in DOM elements
+      () => {
+        try {
+          const latEl = document.querySelector('[data-lat], [data-latitude], #lat, #latitude, .lat, .latitude');
+          const lonEl = document.querySelector('[data-lon], [data-lng], [data-longitude], #lon, #lng, #longitude, .lon, .lng, .longitude');
+          if (latEl && lonEl) {
+            const lat = parseFloat(latEl.textContent || latEl.value || latEl.getAttribute('data-lat') || latEl.getAttribute('data-latitude'));
+            const lon = parseFloat(lonEl.textContent || lonEl.value || lonEl.getAttribute('data-lon') || lonEl.getAttribute('data-lng') || lonEl.getAttribute('data-longitude'));
+            if (!isNaN(lat) && !isNaN(lon)) {
+              return { latitude: lat, longitude: lon };
+            }
+          }
+        } catch (e) { return null; }
+      },
+      
+      // Check for meta tags
+      () => {
+        try {
+          const latMeta = document.querySelector('meta[name="latitude"], meta[property="latitude"]');
+          const lonMeta = document.querySelector('meta[name="longitude"], meta[property="longitude"]');
+          if (latMeta && lonMeta) {
+            const lat = parseFloat(latMeta.getAttribute('content'));
+            const lon = parseFloat(lonMeta.getAttribute('content'));
+            if (!isNaN(lat) && !isNaN(lon)) {
+              return { latitude: lat, longitude: lon };
+            }
+          }
+        } catch (e) { return null; }
       }
     ];
 
@@ -173,7 +203,6 @@
               lat >= -90 && lat <= 90 && 
               lon >= -180 && lon <= 180) {
             
-            console.log(`Found GPS data from source ${i}:`, data);
             return {
               lat: lat,
               lon: lon,
@@ -189,6 +218,48 @@
     
     return null;
   }
+
+  // Store last known IRL Pro location
+  let lastIRLProLocation = null;
+  
+  // Aggressive polling for IRL Pro GPS data
+  function pollForIRLProGPS() {
+    const location = getIRLProLocation();
+    if (location && (!lastIRLProLocation || 
+        Math.abs(location.lat - lastIRLProLocation.lat) > 0.0001 || 
+        Math.abs(location.lon - lastIRLProLocation.lon) > 0.0001)) {
+      lastIRLProLocation = location;
+      updateLocationAndWeather();
+    }
+  }
+  
+  // Poll every 2 seconds for IRL Pro GPS
+  setInterval(pollForIRLProGPS, 2000);
+  
+  // Listen for custom events that might indicate GPS updates
+  ['gpsupdate', 'locationupdate', 'positionchange', 'coordinateschange'].forEach(eventName => {
+    window.addEventListener(eventName, updateLocationAndWeather);
+    document.addEventListener(eventName, updateLocationAndWeather);
+  });
+  
+  // Watch for DOM changes that might indicate GPS data injection
+  if (typeof MutationObserver !== 'undefined') {
+    const observer = new MutationObserver(() => {
+      const location = getIRLProLocation();
+      if (location && (!lastIRLProLocation || 
+          Math.abs(location.lat - lastIRLProLocation.lat) > 0.0001 || 
+          Math.abs(location.lon - lastIRLProLocation.lon) > 0.0001)) {
+        lastIRLProLocation = location;
+        updateLocationAndWeather();
+      }
+    });
+    observer.observe(document.body, { 
+      childList: true, 
+      subtree: true, 
+      attributes: true, 
+      attributeFilter: ['data-lat', 'data-latitude', 'data-lon', 'data-lng', 'data-longitude'] 
+    });
+  }
   
   // Method 2: Try browser GPS
   function getBrowserGPS() {
@@ -198,7 +269,7 @@
         return;
       }
   
-      placeEl.textContent = "Grabbing GPS estimate...";
+      placeEl.textContent = "Grabbing GPS location...";
       
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -241,19 +312,23 @@
     try {
       let locationData = null;
       
-      // Try Method 1: IRL Pro location data
-      locationData = getIRLProLocation();
-      if (locationData) {
-        console.log('Using IRL Pro location');
+      // Try Method 1: IRL Pro location data (check multiple times)
+      for (let attempt = 0; attempt < 3 && !locationData; attempt++) {
+        locationData = getIRLProLocation();
+        if (locationData) {
+          break;
+        }
+        if (attempt < 2) {
+          await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms between attempts
+        }
       }
       
       // Try Method 2: Browser GPS (if no IRL Pro data)
       if (!locationData) {
         try {
           locationData = await getBrowserGPS();
-          console.log('Using Browser GPS');
         } catch (gpsError) {
-          console.log('Browser GPS failed:', gpsError.message);
+          // Silent fallback
         }
       }
       
@@ -261,7 +336,6 @@
       if (!locationData) {
         placeEl.textContent = "Using IP location...";
         locationData = await getLocationFromGoogle();
-        console.log('Using IP location');
       }
       
       // Update the display
@@ -270,13 +344,11 @@
         const label = await reverseGeocode(locationData.lat, locationData.lon);
         placeEl.textContent = label;
         fetchWeather(locationData.lat, locationData.lon);
-        console.log(`${locationData.source}: ${locationData.lat}, ${locationData.lon}`);
       }
       
     } catch (e) {
       placeEl.textContent = "Location N/A";
       weatherEl.textContent = "Weather N/A";
-      console.error("Failed to get location or weather:", e);
     }
   }
   
