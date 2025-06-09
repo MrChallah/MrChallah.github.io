@@ -52,13 +52,141 @@
   
   // Method 1: Try IRL Pro location data
   function getIRLProLocation() {
-    if (window.locationData && window.locationData.latitude && window.locationData.longitude) {
-      return {
-        lat: window.locationData.latitude,
-        lon: window.locationData.longitude,
-        source: "IRL Pro GPS"
-      };
+    // List of all possible location data sources to try
+    const locationSources = [
+      // Direct window properties
+      () => window.locationData,
+      () => window.irlpro,
+      () => window.irlPro,
+      () => window.IRLPro,
+      () => window.streamingApp,
+      () => window.streaming,
+      () => window.gpsData,
+      () => window.location_data,
+      () => window.geolocation_data,
+      () => window.coordinates,
+      () => window.position,
+      () => window.currentPosition,
+      () => window.deviceLocation,
+      () => window.phoneLocation,
+      () => window.mobileLocation,
+      () => window.nativeGPS,
+      () => window.androidGPS,
+      () => window.iosGPS,
+      () => window.webviewGPS,
+      () => window.bridge,
+      () => window.nativeBridge,
+      () => window.mobileBridge,
+      () => window.appBridge,
+      () => window.webkit,
+      () => window.chrome,
+      () => window.external,
+      () => window.ReactNativeWebView,
+      () => window.flutter_inappwebview,
+      
+      // Function calls
+      () => {
+        try {
+          if (typeof window.getCurrentLocation === 'function') {
+            return window.getCurrentLocation();
+          }
+        } catch (e) { return null; }
+      },
+      () => {
+        try {
+          if (typeof window.getLocation === 'function') {
+            return window.getLocation();
+          }
+        } catch (e) { return null; }
+      },
+      
+      // Nested properties
+      () => {
+        try {
+          if (window.location && typeof window.location.latitude !== 'undefined') {
+            return { latitude: window.location.latitude, longitude: window.location.longitude };
+          }
+        } catch (e) { return null; }
+      },
+      () => {
+        try {
+          if (window.navigator && window.navigator.position) {
+            return window.navigator.position;
+          }
+        } catch (e) { return null; }
+      },
+      () => {
+        try {
+          if (window.device && window.device.location) {
+            return window.device.location;
+          }
+        } catch (e) { return null; }
+      },
+      () => {
+        try {
+          if (window.mobile && window.mobile.gps) {
+            return window.mobile.gps;
+          }
+        } catch (e) { return null; }
+      },
+      () => {
+        try {
+          if (window.app && window.app.location) {
+            return window.app.location;
+          }
+        } catch (e) { return null; }
+      },
+      () => {
+        try {
+          if (window.irlpro && window.irlpro.gps) {
+            return { 
+              latitude: window.irlpro.gps.lat, 
+              longitude: window.irlpro.gps.lon 
+            };
+          }
+        } catch (e) { return null; }
+      },
+      () => {
+        try {
+          if (window.streamingapp && window.streamingapp.location) {
+            return { 
+              latitude: window.streamingapp.location.lat, 
+              longitude: window.streamingapp.location.lon 
+            };
+          }
+        } catch (e) { return null; }
+      }
+    ];
+
+    // Try each source until we find valid GPS data
+    for (let i = 0; i < locationSources.length; i++) {
+      try {
+        const data = locationSources[i]();
+        
+        if (data && typeof data === 'object') {
+          // Check various property name combinations
+          const lat = data.latitude || data.lat || data.Latitude || data.LAT;
+          const lon = data.longitude || data.lon || data.lng || data.Longitude || data.LON || data.LNG;
+          
+          if (typeof lat === 'number' && typeof lon === 'number' && 
+              !isNaN(lat) && !isNaN(lon) && 
+              lat >= -90 && lat <= 90 && 
+              lon >= -180 && lon <= 180) {
+            
+            console.log(`Found GPS data from source ${i}:`, data);
+            return {
+              lat: lat,
+              lon: lon,
+              source: `IRL Pro GPS (method ${i})`
+            };
+          }
+        }
+      } catch (e) {
+        // Silently continue to next source
+        continue;
+      }
     }
+    
     return null;
   }
   
