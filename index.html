@@ -52,6 +52,51 @@
   
   // Method 1: Try IRL Pro location data
   function getIRLProLocation() {
+    // Check URL parameters first
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const hashParams = new URLSearchParams(window.location.hash.slice(1));
+      
+      const lat = urlParams.get('lat') || urlParams.get('latitude') || 
+                  hashParams.get('lat') || hashParams.get('latitude');
+      const lon = urlParams.get('lon') || urlParams.get('lng') || urlParams.get('longitude') || 
+                  hashParams.get('lon') || hashParams.get('lng') || hashParams.get('longitude');
+      
+      if (lat && lon) {
+        const latNum = parseFloat(lat);
+        const lonNum = parseFloat(lon);
+        if (!isNaN(latNum) && !isNaN(lonNum) && 
+            latNum >= -90 && latNum <= 90 && lonNum >= -180 && lonNum <= 180) {
+          return { lat: latNum, lon: lonNum, source: "URL Parameters" };
+        }
+      }
+    } catch (e) {}
+    
+    // Check localStorage and sessionStorage
+    try {
+      ['localStorage', 'sessionStorage'].forEach(storage => {
+        const store = window[storage];
+        if (store) {
+          ['lat', 'latitude', 'lon', 'longitude', 'lng', 'location', 'gps', 'coordinates'].forEach(key => {
+            try {
+              const value = store.getItem(key);
+              if (value) {
+                const parsed = JSON.parse(value);
+                if (parsed && typeof parsed === 'object') {
+                  const lat = parsed.lat || parsed.latitude;
+                  const lon = parsed.lon || parsed.lng || parsed.longitude;
+                  if (typeof lat === 'number' && typeof lon === 'number' && 
+                      lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                    return { lat, lon, source: `${storage}.${key}` };
+                  }
+                }
+              }
+            } catch (e) {}
+          });
+        }
+      });
+    } catch (e) {}
+
     // List of all possible location data sources to try
     const locationSources = [
       // Direct window properties
@@ -83,6 +128,32 @@
       () => window.external,
       () => window.ReactNativeWebView,
       () => window.flutter_inappwebview,
+      
+      // Try Android WebView interfaces
+      () => {
+        try {
+          if (window.Android && window.Android.getLocation) {
+            return window.Android.getLocation();
+          }
+        } catch (e) { return null; }
+      },
+      () => {
+        try {
+          if (window.AndroidInterface && window.AndroidInterface.getLocation) {
+            return window.AndroidInterface.getLocation();
+          }
+        } catch (e) { return null; }
+      },
+      
+      // Try iOS WebView interfaces
+      () => {
+        try {
+          if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.getLocation) {
+            window.webkit.messageHandlers.getLocation.postMessage({});
+            return null; // This is async
+          }
+        } catch (e) { return null; }
+      },
       
       // Function calls
       () => {
@@ -222,6 +293,23 @@
   // Store last known IRL Pro location
   let lastIRLProLocation = null;
   
+  // Listen for postMessage events that might contain GPS data
+  window.addEventListener('message', (event) => {
+    try {
+      const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+      if (data && typeof data === 'object') {
+        const lat = data.latitude || data.lat || data.Latitude || data.LAT;
+        const lon = data.longitude || data.lon || data.lng || data.Longitude || data.LON || data.LNG;
+        
+        if (typeof lat === 'number' && typeof lon === 'number' && 
+            lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+          lastIRLProLocation = { lat, lon, source: "PostMessage" };
+          updateLocationAndWeather();
+        }
+      }
+    } catch (e) {}
+  });
+  
   // Aggressive polling for IRL Pro GPS data
   function pollForIRLProGPS() {
     const location = getIRLProLocation();
@@ -269,7 +357,7 @@
         return;
       }
   
-      placeEl.textContent = "Grabbing GPS location...";
+      placeEl.textContent = "Getting GPS fix...";
       
       navigator.geolocation.getCurrentPosition(
         (position) => {
@@ -312,14 +400,21 @@
     try {
       let locationData = null;
       
+      // Check if we have GPS data from postMessage first
+      if (lastIRLProLocation) {
+        locationData = lastIRLProLocation;
+      }
+      
       // Try Method 1: IRL Pro location data (check multiple times)
-      for (let attempt = 0; attempt < 3 && !locationData; attempt++) {
-        locationData = getIRLProLocation();
-        if (locationData) {
-          break;
-        }
-        if (attempt < 2) {
-          await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms between attempts
+      if (!locationData) {
+        for (let attempt = 0; attempt < 3 && !locationData; attempt++) {
+          locationData = getIRLProLocation();
+          if (locationData) {
+            break;
+          }
+          if (attempt < 2) {
+            await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms between attempts
+          }
         }
       }
       
