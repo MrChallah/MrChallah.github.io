@@ -81,32 +81,89 @@
         reject(new Error('Geolocation not supported'));
         return;
       }
-  
+
       placeEl.textContent = "Getting GPS fix...";
       
+      // iOS-specific options for better GPS accuracy
       const options = {
         enableHighAccuracy: true,
-        timeout: isIOS ? 60000 : (isMobile ? 45000 : 15000),
-        maximumAge: gpsSuccessful ? 30000 : 0
+        timeout: isIOS ? 90000 : (isMobile ? 45000 : 15000), // Extra long timeout for iOS
+        maximumAge: gpsSuccessful ? (isIOS ? 60000 : 30000) : 0 // Longer cache for iOS
       };
       
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          gpsSuccessful = true;
-          consecutiveGPSFailures = 0;
-          resolve({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-            accuracy: Math.round(position.coords.accuracy),
-            source: `GPS (±${Math.round(position.coords.accuracy)}m)`
-          });
-        },
-        (error) => {
-          consecutiveGPSFailures++;
-          reject(error);
-        },
-        options
-      );
+      // For iOS, try multiple approaches
+      if (isIOS) {
+        // First try watchPosition for better iOS compatibility
+        const watchId = navigator.geolocation.watchPosition(
+          (position) => {
+            navigator.geolocation.clearWatch(watchId);
+            gpsSuccessful = true;
+            consecutiveGPSFailures = 0;
+            resolve({
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+              accuracy: Math.round(position.coords.accuracy),
+              source: `GPS (±${Math.round(position.coords.accuracy)}m)`
+            });
+          },
+          (error) => {
+            navigator.geolocation.clearWatch(watchId);
+            
+            // Fallback to getCurrentPosition for iOS
+            navigator.geolocation.getCurrentPosition(
+              (position) => {
+                gpsSuccessful = true;
+                consecutiveGPSFailures = 0;
+                resolve({
+                  lat: position.coords.latitude,
+                  lon: position.coords.longitude,
+                  accuracy: Math.round(position.coords.accuracy),
+                  source: `GPS (±${Math.round(position.coords.accuracy)}m)`
+                });
+              },
+              (error2) => {
+                consecutiveGPSFailures++;
+                reject(error2);
+              },
+              {
+                enableHighAccuracy: true,
+                timeout: 120000, // Very long timeout for iOS fallback
+                maximumAge: 0
+              }
+            );
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 60000,
+            maximumAge: 0
+          }
+        );
+        
+        // Clear watch after timeout
+        setTimeout(() => {
+          navigator.geolocation.clearWatch(watchId);
+        }, 65000);
+        
+      } else {
+        // Standard approach for Android/Desktop
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            gpsSuccessful = true;
+            consecutiveGPSFailures = 0;
+            resolve({
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+              accuracy: Math.round(position.coords.accuracy),
+              source: `GPS (±${Math.round(position.coords.accuracy)}m)`
+            });
+          },
+          (error) => {
+            consecutiveGPSFailures++;
+            reject(error);
+          },
+          options
+        );
+      }
     });
   }
   
@@ -139,6 +196,35 @@
           gpsAttempted = true;
         } catch (gpsError) {
           gpsAttempted = true;
+          
+          // For iOS, if GPS fails, try one more time with different settings
+          if (isIOS && !gpsSuccessful && consecutiveGPSFailures === 1) {
+            try {
+              placeEl.textContent = "Retrying GPS for iOS...";
+              const position = await new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(
+                  resolve,
+                  reject,
+                  {
+                    enableHighAccuracy: false, // Try without high accuracy first
+                    timeout: 30000,
+                    maximumAge: 0
+                  }
+                );
+              });
+              
+              locationData = {
+                lat: position.coords.latitude,
+                lon: position.coords.longitude,
+                accuracy: Math.round(position.coords.accuracy),
+                source: `GPS Low-Accuracy (±${Math.round(position.coords.accuracy)}m)`
+              };
+              gpsSuccessful = true;
+              consecutiveGPSFailures = 0;
+            } catch (retryError) {
+              // Continue to IP fallback
+            }
+          }
         }
       }
       
@@ -173,10 +259,39 @@
     }
   }
   
+  // iOS permission check and initialization
+  async function initializeLocationServices() {
+    if (isIOS && 'permissions' in navigator) {
+      try {
+        const permission = await navigator.permissions.query({name: 'geolocation'});
+        if (permission.state === 'prompt') {
+          // For iOS, trigger a gentle permission request
+          placeEl.textContent = "Requesting location access...";
+          try {
+            await new Promise((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(
+                resolve,
+                reject,
+                { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 }
+              );
+            });
+          } catch (e) {
+            // Permission likely denied, continue with normal flow
+          }
+        }
+      } catch (e) {
+        // Permission API not available
+      }
+    }
+    
+    // Start the main location update
+    updateLocationAndWeather();
+  }
+  
   // Auto-refresh every 90 seconds
   setInterval(() => updateLocationAndWeather(), 90000);
   
-  // Start immediately
-  updateLocationAndWeather();
+  // Start with iOS-aware initialization
+  initializeLocationServices();
   </script>
   </body></html>
