@@ -50,6 +50,51 @@ async function fetchWeather(lat, lon){
   weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
 }
 
+// Method 1: Try IRL Pro location data
+function getIRLProLocation() {
+  if (window.locationData && window.locationData.latitude && window.locationData.longitude) {
+    return {
+      lat: window.locationData.latitude,
+      lon: window.locationData.longitude,
+      source: "IRL Pro GPS"
+    };
+  }
+  return null;
+}
+
+// Method 2: Try browser GPS
+function getBrowserGPS() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation not supported'));
+      return;
+    }
+
+    placeEl.textContent = "Getting GPS fix...";
+    
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+          accuracy: Math.round(position.coords.accuracy),
+          source: `Browser GPS (±${Math.round(position.coords.accuracy)}m)`
+        });
+      },
+      (error) => {
+        console.log('GPS Error:', error.message);
+        reject(error);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 30000
+      }
+    );
+  });
+}
+
+// Method 3: Fallback to IP location
 async function getLocationFromGoogle(){
   const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
     method: "POST",
@@ -57,16 +102,49 @@ async function getLocationFromGoogle(){
     body: JSON.stringify({ considerIp: true })
   });
   const data = await res.json();
-  return data.location;
+  return {
+    lat: data.location.lat,
+    lon: data.location.lng,
+    source: "IP Location"
+  };
 }
 
 async function updateLocationAndWeather(){
   try {
-    // Use IP-based location (reliable but not precise)
-    const loc = await getLocationFromGoogle();
-    const label = await reverseGeocode(loc.lat, loc.lng);
-    placeEl.textContent = label;
-    fetchWeather(loc.lat, loc.lng);
+    let locationData = null;
+    
+    // Try Method 1: IRL Pro location data
+    locationData = getIRLProLocation();
+    if (locationData) {
+      console.log('Using IRL Pro location');
+    }
+    
+    // Try Method 2: Browser GPS (if no IRL Pro data)
+    if (!locationData) {
+      try {
+        locationData = await getBrowserGPS();
+        console.log('Using Browser GPS');
+      } catch (gpsError) {
+        console.log('Browser GPS failed:', gpsError.message);
+      }
+    }
+    
+    // Try Method 3: IP location fallback
+    if (!locationData) {
+      placeEl.textContent = "Using IP location...";
+      locationData = await getLocationFromGoogle();
+      console.log('Using IP location');
+    }
+    
+    // Update the display
+    if (locationData) {
+      placeEl.textContent = "Loading location...";
+      const label = await reverseGeocode(locationData.lat, locationData.lon);
+      placeEl.textContent = label;
+      fetchWeather(locationData.lat, locationData.lon);
+      console.log(`${locationData.source}: ${locationData.lat}, ${locationData.lon}`);
+    }
+    
   } catch (e) {
     placeEl.textContent = "Location N/A";
     weatherEl.textContent = "Weather N/A";
