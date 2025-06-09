@@ -75,6 +75,12 @@
       return manualGPS;
     }
     
+    // Method 1.5: Check for intercepted GPS data
+    if (window._interceptedLocation) {
+      debugLog(`Using intercepted GPS: ${window._interceptedLocation.lat}, ${window._interceptedLocation.lon}`);
+      return window._interceptedLocation;
+    }
+    
     // Method 2: Check all possible window objects
     const possibleSources = [
       'window.locationData',
@@ -500,13 +506,86 @@
   function startIRLProPolling() {
     if (irlProPollingInterval) clearInterval(irlProPollingInterval);
     
+    // Store initial window properties to detect new ones
+    let initialProps = new Set(Object.getOwnPropertyNames(window));
+    
     irlProPollingInterval = setInterval(() => {
+      // Check for new window properties
+      let currentProps = Object.getOwnPropertyNames(window);
+      for (let prop of currentProps) {
+        if (!initialProps.has(prop)) {
+          initialProps.add(prop);
+          try {
+            let value = window[prop];
+            if (value && typeof value === 'object' && hasGPSProperties(value)) {
+              debugLog(`New GPS-like property detected: window.${prop}`);
+              let gpsData = extractGPSFromObject(value, `new property: ${prop}`);
+              if (gpsData && (gpsData.lat !== currentLocation.lat || gpsData.lon !== currentLocation.lon)) {
+                debugLog(`New GPS data from property ${prop}: ${gpsData.lat}, ${gpsData.lon}`);
+                updateLocation(gpsData);
+                return;
+              }
+            }
+          } catch (e) {
+            // Ignore
+          }
+        }
+      }
+      
+      // Regular polling of existing sources
       let gpsData = detectIRLProGPS();
       if (gpsData && (gpsData.lat !== currentLocation.lat || gpsData.lon !== currentLocation.lon)) {
-        debugLog(`New GPS data from IRL Pro: ${gpsData.lat}, ${gpsData.lon} (${gpsData.source})`);
+        debugLog(`Updated GPS data from IRL Pro: ${gpsData.lat}, ${gpsData.lon} (${gpsData.source})`);
         updateLocation(gpsData);
       }
     }, 2000); // Poll every 2 seconds
+  }
+  
+  // Monkey-patch geolocation functions to intercept IRL Pro calls
+  function setupGeolocationInterception() {
+    if (navigator.geolocation && navigator.geolocation.getCurrentPosition) {
+      const originalGetCurrentPosition = navigator.geolocation.getCurrentPosition;
+      
+      navigator.geolocation.getCurrentPosition = function(success, error, options) {
+        debugLog('Intercepted geolocation.getCurrentPosition call');
+        
+        // Call original with our own success handler
+        return originalGetCurrentPosition.call(this, function(position) {
+          debugLog(`Intercepted GPS result: ${position.coords.latitude}, ${position.coords.longitude}`);
+          // Store this for our use
+          window._interceptedLocation = {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            source: 'Intercepted Geolocation'
+          };
+          
+          // Call original success handler
+          if (success) success(position);
+        }, error, options);
+      };
+    }
+    
+    // Also intercept watchPosition
+    if (navigator.geolocation && navigator.geolocation.watchPosition) {
+      const originalWatchPosition = navigator.geolocation.watchPosition;
+      
+      navigator.geolocation.watchPosition = function(success, error, options) {
+        debugLog('Intercepted geolocation.watchPosition call');
+        
+        return originalWatchPosition.call(this, function(position) {
+          debugLog(`Intercepted watch GPS result: ${position.coords.latitude}, ${position.coords.longitude}`);
+          window._interceptedLocation = {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            source: 'Intercepted Watch Position'
+          };
+          
+          if (success) success(position);
+        }, error, options);
+      };
+    }
   }
   
   // Method 2: Try browser GPS
@@ -659,6 +738,7 @@
   updateTime();
   setInterval(updateTime, 1000);
   
+  setupGeolocationInterception();
   getLocation();
   startIRLProPolling();
   
