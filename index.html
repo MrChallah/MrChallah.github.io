@@ -50,51 +50,114 @@ async function fetchWeather(lat, lon){
   weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
 }
 
-// Enhanced IRL Pro location detection
-function getIRLProLocation() {
-  // Check common location property names
-  const locationProps = [
-    'locationData', 'gpsData', 'position', 'coordinates', 'location', 'gps',
-    'currentLocation', 'deviceLocation', 'IRLLocation', 'streamLocation'
-  ];
-  
-  for (const prop of locationProps) {
-    if (window[prop]) {
-      const data = window[prop];
-      console.log(`Found window.${prop}:`, data);
-      
-      // Check different possible structures
-      if (data.latitude && data.longitude) {
-        return { lat: data.latitude, lon: data.longitude, source: `IRL Pro (${prop})` };
-      }
-      if (data.lat && data.lon) {
-        return { lat: data.lat, lon: data.lon, source: `IRL Pro (${prop})` };
-      }
-      if (data.coords && data.coords.latitude && data.coords.longitude) {
-        return { lat: data.coords.latitude, lon: data.coords.longitude, source: `IRL Pro (${prop}.coords)` };
-      }
-    }
-  }
-  
-  // Check for potential IRL Pro functions
-  const locationFunctions = ['getLocation', 'getCurrentLocation', 'getGPS', 'getPosition'];
-  for (const func of locationFunctions) {
-    if (typeof window[func] === 'function') {
-      console.log(`Found function: window.${func}`);
-      try {
-        const result = window[func]();
-        if (result && result.latitude && result.longitude) {
-          return { lat: result.latitude, lon: result.longitude, source: `IRL Pro (${func}())` };
-        }
-      } catch (e) {
-        console.log(`Error calling ${func}:`, e);
-      }
-    }
-  }
-  
-  return null;
+// Method 1: Google Geolocation API (Enhanced)
+async function getGoogleLocation(){
+  const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ 
+      considerIp: true,
+      wifiAccessPoints: [], // Could be populated if available
+      cellTowers: []        // Could be populated if available
+    })
+  });
+  const data = await res.json();
+  return {
+    lat: data.location.lat,
+    lon: data.location.lng,
+    accuracy: data.accuracy || 'Unknown',
+    source: "Google Geolocation"
+  };
 }
 
+// Method 2: IPInfo.io (Often more accurate than basic IP geolocation)
+async function getIPInfoLocation(){
+  const res = await fetch('https://ipinfo.io/json');
+  const data = await res.json();
+  if (data.loc) {
+    const [lat, lon] = data.loc.split(',').map(Number);
+    return {
+      lat,
+      lon,
+      city: data.city,
+      region: data.region,
+      country: data.country,
+      source: "IPInfo.io"
+    };
+  }
+  throw new Error('No location data from IPInfo');
+}
+
+// Method 3: IP-API.com (Another accurate service)
+async function getIPAPILocation(){
+  const res = await fetch('http://ip-api.com/json/?fields=status,lat,lon,city,regionName,country,isp');
+  const data = await res.json();
+  if (data.status === 'success') {
+    return {
+      lat: data.lat,
+      lon: data.lon,
+      city: data.city,
+      region: data.regionName,
+      country: data.country,
+      isp: data.isp,
+      source: "IP-API.com"
+    };
+  }
+  throw new Error('No location data from IP-API');
+}
+
+// Method 4: FreeGeoIP
+async function getFreeGeoIPLocation(){
+  const res = await fetch('https://freegeoip.app/json/');
+  const data = await res.json();
+  return {
+    lat: data.latitude,
+    lon: data.longitude,
+    city: data.city,
+    region: data.region_name,
+    country: data.country_name,
+    source: "FreeGeoIP"
+  };
+}
+
+// Enhanced location detection with multiple services
+async function getEnhancedIPLocation() {
+  const services = [
+    getIPInfoLocation,      // Often most accurate
+    getIPAPILocation,       // Good fallback
+    getFreeGeoIPLocation,   // Alternative
+    getGoogleLocation       // Google as final fallback
+  ];
+  
+  let bestLocation = null;
+  let allResults = [];
+  
+  // Try each service
+  for (const service of services) {
+    try {
+      const result = await service();
+      allResults.push(result);
+      console.log(`${result.source}: ${result.lat}, ${result.lon}`);
+      
+      // Use the first successful result as primary
+      if (!bestLocation) {
+        bestLocation = result;
+      }
+    } catch (e) {
+      console.log(`Service failed:`, e.message);
+    }
+  }
+  
+  // If we have multiple results, we could potentially average them
+  // or use the one with best accuracy indicators
+  if (allResults.length > 1) {
+    console.log(`Got ${allResults.length} location sources, using: ${bestLocation.source}`);
+  }
+  
+  return bestLocation;
+}
+
+// Try browser GPS first (if available), then enhanced IP location
 function getBrowserGPS() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -116,47 +179,39 @@ function getBrowserGPS() {
       },
       {
         enableHighAccuracy: true,
-        timeout: 15000,
+        timeout: 10000,
         maximumAge: 30000
       }
     );
   });
 }
 
-async function getLocationFromGoogle(){
-  const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ considerIp: true })
-  });
-  const data = await res.json();
-  return {
-    lat: data.location.lat,
-    lon: data.location.lng,
-    source: "IP Location"
-  };
-}
-
 async function updateLocationAndWeather(){
   try {
     let locationData = null;
     
-    // Try IRL Pro location data (enhanced detection)
-    locationData = getIRLProLocation();
+    // Try IRL Pro location data first
+    if (window.locationData && window.locationData.latitude) {
+      locationData = {
+        lat: window.locationData.latitude,
+        lon: window.locationData.longitude,
+        source: "IRL Pro GPS"
+      };
+    }
     
     // Try browser GPS if no IRL Pro data
     if (!locationData) {
       try {
         locationData = await getBrowserGPS();
       } catch (gpsError) {
-        console.log('Browser GPS failed:', gpsError.message);
+        console.log('Browser GPS failed, trying enhanced IP location...');
       }
     }
     
-    // Fallback to IP location
+    // Use enhanced IP location as fallback
     if (!locationData) {
-      placeEl.textContent = "Using IP location...";
-      locationData = await getLocationFromGoogle();
+      placeEl.textContent = "Getting enhanced location...";
+      locationData = await getEnhancedIPLocation();
     }
     
     // Update display
@@ -165,13 +220,13 @@ async function updateLocationAndWeather(){
       const label = await reverseGeocode(locationData.lat, locationData.lon);
       placeEl.textContent = label;
       fetchWeather(locationData.lat, locationData.lon);
-      console.log(`${locationData.source}: ${locationData.lat}, ${locationData.lon}`);
+      console.log(`Final location: ${locationData.source} - ${locationData.lat}, ${locationData.lon}`);
     }
     
   } catch (e) {
     placeEl.textContent = "Location N/A";
     weatherEl.textContent = "Weather N/A";
-    console.error("Failed to get location or weather:", e);
+    console.error("All location methods failed:", e);
   }
 }
 
