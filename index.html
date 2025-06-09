@@ -5,6 +5,7 @@ html,body{margin:0;padding:0;background:transparent;color:#fff;font-family:sans-
 #info{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;}
 .row{display:flex;align-items:center;font-size:15px;font-weight:500;text-shadow:0 0 4px #000,0 0 8px #000;}
 .row i{width:18px;margin-right:6px;text-align:center;}
+#debug{position:absolute;bottom:8px;left:8px;font-size:10px;color:#yellow;background:rgba(0,0,0,0.7);padding:4px;border-radius:4px;max-width:300px;word-wrap:break-word;}
 </style></head><body>
 
 <div id="info">
@@ -13,10 +14,14 @@ html,body{margin:0;padding:0;background:transparent;color:#fff;font-family:sans-
   <div class="row"><i class="fa-solid fa-cloud"></i><span id="weather">--°C</span></div>
 </div>
 
+<div id="debug"></div>
+
 <script>
 const placeEl = document.getElementById('place');
 const weatherEl = document.getElementById('weather');
-const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c'; // Your OpenWeatherMap key
+const debugEl = document.getElementById('debug');
+const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c';
+const GOOGLE_GEO_KEY = 'AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU';
 
 function tick(){
   const now = new Date();
@@ -26,6 +31,16 @@ function tick(){
     `${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} GMT${sign}${Math.abs(offset)}`;
 }
 tick(); setInterval(tick, 1000);
+
+function debugLog(message) {
+  console.log(message);
+  debugEl.innerHTML += message + '<br>';
+  // Keep only last 5 debug messages
+  const lines = debugEl.innerHTML.split('<br>');
+  if (lines.length > 6) {
+    debugEl.innerHTML = lines.slice(-6).join('<br>');
+  }
+}
 
 async function reverseGeocode(lat, lon){
   const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`);
@@ -45,24 +60,87 @@ async function fetchWeather(lat, lon){
   const j = await r.json();
   const c = j.main.temp.toFixed(0);
   const f = (c * 9 / 5 + 32).toFixed(0);
-  const desc = j.weather[0].description.replace(/\\b\\w/g, s => s.toUpperCase());
+  const desc = j.weather[0].description.replace(/\b\w/g, s => s.toUpperCase());
   weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
 }
 
-async function updateFromGPS(){
-  const data = window.locationData;
-  if (!data || !data.latitude || !data.longitude) {
-    placeEl.textContent = "Waiting for GPS...";
-    return;
-  }
-
-  const lat = data.latitude;
-  const lon = data.longitude;
-  const label = await reverseGeocode(lat, lon);
-  placeEl.textContent = label;
-  fetchWeather(lat, lon);
+async function getLocationFromGoogle(){
+  const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ considerIp: true })
+  });
+  const data = await res.json();
+  return data.location;
 }
 
-setInterval(updateFromGPS, 10000); // update every 10 seconds
+async function updateLocationAndWeather(){
+  try {
+    // Debug: Check what's available
+    debugLog("Checking location sources...");
+    
+    // Check for various possible location data properties
+    const locationSources = [
+      'locationData',
+      'gpsData', 
+      'position',
+      'coordinates',
+      'location',
+      'gps'
+    ];
+    
+    let foundData = null;
+    for (const source of locationSources) {
+      if (window[source]) {
+        debugLog(`Found: window.${source} = ${JSON.stringify(window[source])}`);
+        if (window[source].latitude && window[source].longitude) {
+          foundData = window[source];
+          break;
+        }
+      }
+    }
+    
+    let lat, lon;
+    
+    if (foundData && foundData.latitude && foundData.longitude) {
+      lat = foundData.latitude;
+      lon = foundData.longitude;
+      debugLog(`Using IRL Pro GPS: ${lat}, ${lon}`);
+      placeEl.textContent = "Using IRL Pro GPS...";
+    } else {
+      debugLog("No IRL Pro GPS found, using IP location...");
+      placeEl.textContent = "Using IP location...";
+      const loc = await getLocationFromGoogle();
+      lat = loc.lat;
+      lon = loc.lng;
+      debugLog(`Using Google location: ${lat}, ${lon}`);
+    }
+    
+    const label = await reverseGeocode(lat, lon);
+    placeEl.textContent = label;
+    fetchWeather(lat, lon);
+    debugLog(`Location resolved: ${label}`);
+    
+  } catch (e) {
+    placeEl.textContent = "Location N/A";
+    weatherEl.textContent = "Weather N/A";
+    debugLog(`Error: ${e.message}`);
+    console.error("Failed to get location or weather:", e);
+  }
+}
+
+// Check for location data every 5 seconds initially, then every 10 seconds
+let checkCount = 0;
+const locationChecker = setInterval(() => {
+  updateLocationAndWeather();
+  checkCount++;
+  if (checkCount >= 6) {
+    clearInterval(locationChecker);
+    setInterval(updateLocationAndWeather, 10000);
+  }
+}, 5000);
+
+// Initial check
+updateLocationAndWeather();
 </script>
 </body></html>
