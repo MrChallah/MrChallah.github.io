@@ -166,17 +166,19 @@
           debugLog(errorMsg);
           consecutiveGPSFailures++; // Increment failure counter
           
-          // Show GPS button on mobile if GPS fails and it's not a timeout during refresh
-          if (isMobile && (!gpsSuccessful || userTriggered)) {
+          // Only show GPS button on explicit user-triggered failures or permission denied
+          if (isMobile && (error.code === 1 || (userTriggered && consecutiveGPSFailures > 1))) {
             gpsButton.style.display = 'block';
             if (error.code === 1) {
               placeEl.textContent = isIOS ? "GPS permission needed - tap to retry" : "GPS permission denied - tap to retry";
+              placeEl.className = 'location-clickable';
             } else if (error.code === 3) {
               placeEl.textContent = "GPS timeout - tap to retry";
+              placeEl.className = 'location-clickable';
             } else {
               placeEl.textContent = "GPS failed - tap to retry";
+              placeEl.className = 'location-clickable';
             }
-            placeEl.className = 'location-clickable';
           }
           
           reject(error);
@@ -233,11 +235,6 @@
           if (gpsSuccessful && !userTriggered) {
             debugLog('GPS failed but was successful before, will retry next time');
           }
-          
-          // On mobile, show the GPS button if GPS fails and we don't have a successful fallback
-          if (isMobile && (!gpsSuccessful || userTriggered)) {
-            gpsButton.style.display = 'block';
-          }
         }
       }
       
@@ -247,11 +244,6 @@
           placeEl.textContent = "Using IP location...";
           locationData = await getLocationFromGoogle();
           debugLog(`Using IP-based location as fallback (GPS failures: ${consecutiveGPSFailures})`);
-          
-          // Show GPS button on mobile to allow manual GPS attempt
-          if (isMobile) {
-            gpsButton.style.display = 'block';
-          }
         } else {
           placeEl.textContent = "GPS unavailable";
           debugLog('GPS request failed, no fallback');
@@ -285,11 +277,6 @@
       placeEl.textContent = "Location N/A";
       weatherEl.textContent = "Weather N/A";
       debugLog(`Error: ${e.message}`);
-      
-      // Show GPS button as fallback
-      if (isMobile) {
-        gpsButton.style.display = 'block';
-      }
     }
   }
   
@@ -300,7 +287,7 @@
   });
   
   placeEl.addEventListener('click', () => {
-    if (placeEl.className.includes('location-clickable') || (isMobile && !gpsSuccessful)) {
+    if (placeEl.className.includes('location-clickable')) {
       debugLog('Location text clicked');
       updateLocationAndWeather(true);
     }
