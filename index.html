@@ -45,6 +45,68 @@
     }
   });
   
+  // Mobile-friendly debug activation methods
+  let tapCount = 0;
+  let tapTimer = null;
+  
+  // Triple-tap to toggle debug (mobile friendly)
+  document.addEventListener('touchstart', (e) => {
+    tapCount++;
+    if (tapTimer) clearTimeout(tapTimer);
+    
+    if (tapCount === 3) {
+      debugMode = !debugMode;
+      debugEl.style.display = debugMode ? 'block' : 'none';
+      if (debugMode) debugEl.innerHTML = lastDebugLog.join('<br>');
+      debugLog(debugMode ? 'Debug mode enabled via triple-tap' : 'Debug mode disabled');
+      tapCount = 0;
+    } else {
+      tapTimer = setTimeout(() => {
+        tapCount = 0;
+      }, 500);
+    }
+  });
+  
+  // Check URL parameter for debug mode (add ?debug=1 to URL)
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('debug') === '1') {
+    debugMode = true;
+    debugEl.style.display = 'block';
+    debugLog('Debug mode enabled via URL parameter');
+  }
+  
+  // Long press on the time display to toggle debug
+  let longPressTimer = null;
+  const timeEl = document.getElementById('time');
+  
+  timeEl.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    longPressTimer = setTimeout(() => {
+      debugMode = !debugMode;
+      debugEl.style.display = debugMode ? 'block' : 'none';
+      if (debugMode) debugEl.innerHTML = lastDebugLog.join('<br>');
+      debugLog(debugMode ? 'Debug mode enabled via long press' : 'Debug mode disabled');
+      
+      // Visual feedback
+      timeEl.style.background = debugMode ? 'rgba(255,0,0,0.3)' : 'none';
+      timeEl.style.borderRadius = '4px';
+    }, 2000); // 2 second long press
+  });
+  
+  timeEl.addEventListener('touchend', () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  });
+  
+  timeEl.addEventListener('touchcancel', () => {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  });
+  
   function tick(){
     const now = new Date();
     const offset = now.getTimezoneOffset() / -60;
@@ -281,6 +343,13 @@
         },
         (error) => {
           debugLog(`Browser GPS error: ${error.message}`);
+          // Auto-enable debug if GPS fails in what looks like a mobile environment
+          if (!debugMode && /Mobi|Android/i.test(navigator.userAgent)) {
+            debugMode = true;
+            debugEl.style.display = 'block';
+            debugEl.innerHTML = lastDebugLog.join('<br>');
+            debugLog('Auto-enabled debug due to GPS failure on mobile');
+          }
           reject(error);
         },
         {
@@ -429,6 +498,6 @@
     }
   });
   
-  debugLog('Press Alt+D to toggle debug display');
+  debugLog('Debug controls: Alt+D (desktop), Triple-tap (mobile), Long-press time (mobile), or add ?debug=1 to URL');
   </script>
   </body></html>
