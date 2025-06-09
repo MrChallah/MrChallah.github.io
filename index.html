@@ -50,19 +50,51 @@ async function fetchWeather(lat, lon){
   weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
 }
 
-// Method 1: Try IRL Pro location data
+// Enhanced IRL Pro location detection
 function getIRLProLocation() {
-  if (window.locationData && window.locationData.latitude && window.locationData.longitude) {
-    return {
-      lat: window.locationData.latitude,
-      lon: window.locationData.longitude,
-      source: "IRL Pro GPS"
-    };
+  // Check common location property names
+  const locationProps = [
+    'locationData', 'gpsData', 'position', 'coordinates', 'location', 'gps',
+    'currentLocation', 'deviceLocation', 'IRLLocation', 'streamLocation'
+  ];
+  
+  for (const prop of locationProps) {
+    if (window[prop]) {
+      const data = window[prop];
+      console.log(`Found window.${prop}:`, data);
+      
+      // Check different possible structures
+      if (data.latitude && data.longitude) {
+        return { lat: data.latitude, lon: data.longitude, source: `IRL Pro (${prop})` };
+      }
+      if (data.lat && data.lon) {
+        return { lat: data.lat, lon: data.lon, source: `IRL Pro (${prop})` };
+      }
+      if (data.coords && data.coords.latitude && data.coords.longitude) {
+        return { lat: data.coords.latitude, lon: data.coords.longitude, source: `IRL Pro (${prop}.coords)` };
+      }
+    }
   }
+  
+  // Check for potential IRL Pro functions
+  const locationFunctions = ['getLocation', 'getCurrentLocation', 'getGPS', 'getPosition'];
+  for (const func of locationFunctions) {
+    if (typeof window[func] === 'function') {
+      console.log(`Found function: window.${func}`);
+      try {
+        const result = window[func]();
+        if (result && result.latitude && result.longitude) {
+          return { lat: result.latitude, lon: result.longitude, source: `IRL Pro (${func}())` };
+        }
+      } catch (e) {
+        console.log(`Error calling ${func}:`, e);
+      }
+    }
+  }
+  
   return null;
 }
 
-// Method 2: Try browser GPS
 function getBrowserGPS() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -70,8 +102,6 @@ function getBrowserGPS() {
       return;
     }
 
-    placeEl.textContent = "Getting GPS fix...";
-    
     navigator.geolocation.getCurrentPosition(
       (position) => {
         resolve({
@@ -82,7 +112,6 @@ function getBrowserGPS() {
         });
       },
       (error) => {
-        console.log('GPS Error:', error.message);
         reject(error);
       },
       {
@@ -94,7 +123,6 @@ function getBrowserGPS() {
   });
 }
 
-// Method 3: Fallback to IP location
 async function getLocationFromGoogle(){
   const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
     method: "POST",
@@ -113,30 +141,25 @@ async function updateLocationAndWeather(){
   try {
     let locationData = null;
     
-    // Try Method 1: IRL Pro location data
+    // Try IRL Pro location data (enhanced detection)
     locationData = getIRLProLocation();
-    if (locationData) {
-      console.log('Using IRL Pro location');
-    }
     
-    // Try Method 2: Browser GPS (if no IRL Pro data)
+    // Try browser GPS if no IRL Pro data
     if (!locationData) {
       try {
         locationData = await getBrowserGPS();
-        console.log('Using Browser GPS');
       } catch (gpsError) {
         console.log('Browser GPS failed:', gpsError.message);
       }
     }
     
-    // Try Method 3: IP location fallback
+    // Fallback to IP location
     if (!locationData) {
       placeEl.textContent = "Using IP location...";
       locationData = await getLocationFromGoogle();
-      console.log('Using IP location');
     }
     
-    // Update the display
+    // Update display
     if (locationData) {
       placeEl.textContent = "Loading location...";
       const label = await reverseGeocode(locationData.lat, locationData.lon);
