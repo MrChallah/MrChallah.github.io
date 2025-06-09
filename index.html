@@ -60,6 +60,7 @@
   let gpsSuccessful = false;
   let gpsAttempted = false;
   let userHasInteracted = false;
+  let consecutiveGPSFailures = 0;
   
   // Detect if we're on mobile
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
@@ -146,6 +147,7 @@
           debugLog(`GPS Success: ±${Math.round(position.coords.accuracy)}m accuracy`);
           gpsButton.style.display = 'none';
           gpsSuccessful = true;
+          consecutiveGPSFailures = 0; // Reset failure counter on success
           resolve({
             lat: position.coords.latitude,
             lon: position.coords.longitude,
@@ -162,6 +164,7 @@
           
           const errorMsg = `GPS Error: ${errorMessages[error.code] || error.message}`;
           debugLog(errorMsg);
+          consecutiveGPSFailures++; // Increment failure counter
           
           // Show GPS button on mobile if GPS fails and it's not a timeout during refresh
           if (isMobile && (!gpsSuccessful || userTriggered)) {
@@ -223,7 +226,7 @@
           debugLog('GPS location acquired successfully');
           gpsAttempted = true;
         } catch (gpsError) {
-          debugLog(`GPS failed: ${gpsError.message}`);
+          debugLog(`GPS failed: ${gpsError.message} (Failure #${consecutiveGPSFailures})`);
           gpsAttempted = true;
           
           // If GPS was successful before but fails now, keep trying (maybe temporary issue)
@@ -238,12 +241,12 @@
         }
       }
       
-      // Try Method 3: IP location fallback (only if GPS was never successful)
-      if (!locationData && !gpsSuccessful) {
+      // Try Method 3: IP location fallback
+      if (!locationData) {
         if (!userTriggered) { // Don't fallback to IP if user specifically requested GPS
           placeEl.textContent = "Using IP location...";
           locationData = await getLocationFromGoogle();
-          debugLog('Using IP-based location as fallback');
+          debugLog(`Using IP-based location as fallback (GPS failures: ${consecutiveGPSFailures})`);
           
           // Show GPS button on mobile to allow manual GPS attempt
           if (isMobile) {
@@ -256,15 +259,20 @@
         }
       }
       
-      // Use last known GPS location if current attempt failed but we had GPS before
-      if (!locationData && gpsSuccessful && lastKnownLocation && lastKnownLocation.source.includes('GPS')) {
-        locationData = lastKnownLocation;
-        debugLog('Using last known GPS location');
+      // Use last known GPS location only if it's very recent (within 5 minutes) and GPS just failed
+      if (!locationData && gpsSuccessful && lastKnownLocation && lastKnownLocation.source.includes('GPS') && consecutiveGPSFailures === 1) {
+        const now = Date.now();
+        const locationAge = now - (lastKnownLocation.timestamp || 0);
+        if (locationAge < 300000) { // 5 minutes
+          locationData = lastKnownLocation;
+          debugLog('Using recent GPS location (within 5 minutes)');
+        }
       }
       
       // Update the display
       if (locationData) {
         lastKnownLocation = locationData;
+        lastKnownLocation.timestamp = Date.now(); // Add timestamp for age tracking
         placeEl.textContent = "Loading location...";
         placeEl.className = '';
         const label = await reverseGeocode(locationData.lat, locationData.lon);
