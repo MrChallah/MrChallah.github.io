@@ -1,158 +1,278 @@
 <!DOCTYPE html><html><head><meta charset="utf-8">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
-<style>
-html,body{margin:0;padding:0;background:transparent;color:#fff;font-family:sans-serif;}
-#info{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;}
-.row{display:flex;align-items:center;font-size:15px;font-weight:500;text-shadow:0 0 4px #000,0 0 8px #000;}
-.row i{width:18px;margin-right:6px;text-align:center;}
-</style></head><body>
-
-<div id="info">
-  <div class="row"><i class="fa-regular fa-clock"></i><span id="time">--:--:--</span></div>
-  <div class="row"><i class="fa-solid fa-location-dot"></i><span id="place">Waiting…</span></div>
-  <div class="row"><i class="fa-solid fa-cloud"></i><span id="weather">--°C</span></div>
-</div>
-
-<script>
-const placeEl = document.getElementById('place');
-const weatherEl = document.getElementById('weather');
-const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c';
-const GOOGLE_GEO_KEY = 'AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU';
-
-function tick(){
-  const now = new Date();
-  const offset = now.getTimezoneOffset() / -60;
-  const sign = offset > 0 ? '-' : '+';
-  document.getElementById('time').textContent =
-    `${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} GMT${sign}${Math.abs(offset)}`;
-}
-tick(); setInterval(tick, 1000);
-
-async function reverseGeocode(lat, lon){
-  const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`);
-  const geo = await res.json();
-  const addr = geo.address;
-  const parts = [
-    addr.road || addr.suburb || "",
-    addr.city || addr.town || addr.village || "",
-    addr.state || "",
-    addr.country || ""
-  ].filter(Boolean);
-  return parts.join(", ");
-}
-
-async function fetchWeather(lat, lon){
-  const r = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&lang=en&appid=${OWM_KEY}`);
-  const j = await r.json();
-  const c = j.main.temp.toFixed(0);
-  const f = (c * 9 / 5 + 32).toFixed(0);
-  const desc = j.weather[0].description.replace(/\b\w/g, s => s.toUpperCase());
-  weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
-}
-
-// Method 1: Try IRL Pro location data
-function getIRLProLocation() {
-  if (window.locationData && window.locationData.latitude && window.locationData.longitude) {
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"/>
+  <style>
+  html,body{margin:0;padding:0;background:transparent;color:#fff;font-family:sans-serif;}
+  #info{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;}
+  .row{display:flex;align-items:center;font-size:15px;font-weight:500;text-shadow:0 0 4px #000,0 0 8px #000;}
+  .row i{width:18px;margin-right:6px;text-align:center;}
+  </style></head><body>
+  
+  <div id="info">
+    <div class="row"><i class="fa-regular fa-clock"></i><span id="time">--:--:--</span></div>
+    <div class="row"><i class="fa-solid fa-location-dot"></i><span id="place">Waiting…</span></div>
+    <div class="row"><i class="fa-solid fa-cloud"></i><span id="weather">--°C</span></div>
+  </div>
+  
+  <script>
+  const placeEl = document.getElementById('place');
+  const weatherEl = document.getElementById('weather');
+  const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c';
+  const GOOGLE_GEO_KEY = 'AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU';
+  
+  function tick(){
+    const now = new Date();
+    const offset = now.getTimezoneOffset() / -60;
+    const sign = offset > 0 ? '-' : '+';
+    document.getElementById('time').textContent =
+      `${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})} GMT${sign}${Math.abs(offset)}`;
+  }
+  tick(); setInterval(tick, 1000);
+  
+  async function reverseGeocode(lat, lon){
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`);
+    const geo = await res.json();
+    const addr = geo.address;
+    const parts = [
+      addr.road || addr.suburb || "",
+      addr.city || addr.town || addr.village || "",
+      addr.state || "",
+      addr.country || ""
+    ].filter(Boolean);
+    return parts.join(", ");
+  }
+  
+  async function fetchWeather(lat, lon){
+    const r = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&lang=en&appid=${OWM_KEY}`);
+    const j = await r.json();
+    const c = j.main.temp.toFixed(0);
+    const f = (c * 9 / 5 + 32).toFixed(0);
+    const desc = j.weather[0].description.replace(/\b\w/g, s => s.toUpperCase());
+    weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
+  }
+  
+  // Method 1: Enhanced IRL Pro location data detection
+  function getIRLProLocation() {
+    // Try multiple possible ways IRL Pro might expose location data
+    const possibleSources = [
+      // Original attempt
+      window.locationData,
+      
+      // Common patterns for streaming apps
+      window.irlpro?.location,
+      window.irlpro?.gps,
+      window.streamingApp?.location,
+      window.gpsData,
+      window.location_data,
+      window.currentLocation,
+      
+      // Check for URL parameters (some apps pass data this way)
+      (() => {
+        const params = new URLSearchParams(window.location.search);
+        const lat = params.get('lat') || params.get('latitude');
+        const lon = params.get('lon') || params.get('lng') || params.get('longitude');
+        if (lat && lon) {
+          return { latitude: parseFloat(lat), longitude: parseFloat(lon) };
+        }
+        return null;
+      })(),
+      
+      // Check localStorage (some apps store location here)
+      (() => {
+        try {
+          const stored = localStorage.getItem('gpsLocation') || localStorage.getItem('currentLocation');
+          return stored ? JSON.parse(stored) : null;
+        } catch (e) {
+          return null;
+        }
+      })(),
+      
+      // Check if there's a global GPS object
+      window.GPS,
+      window.gps,
+      
+      // Check for Android WebView interface
+      window.Android?.getLocation ? (() => {
+        try {
+          const loc = window.Android.getLocation();
+          return typeof loc === 'string' ? JSON.parse(loc) : loc;
+        } catch (e) {
+          return null;
+        }
+      })() : null,
+      
+      // Check for iOS WebKit message handlers
+      window.webkit?.messageHandlers?.locationHandler ? (() => {
+        try {
+          // This is async, but we'll try anyway
+          return window.webkit.messageHandlers.locationHandler.postMessage('getLocation');
+        } catch (e) {
+          return null;
+        }
+      })() : null
+    ];
+    
+    for (const source of possibleSources) {
+      if (source && typeof source === 'object' && 
+          (source.latitude || source.lat) && 
+          (source.longitude || source.lon || source.lng)) {
+        
+        // Normalize the format
+        const lat = source.latitude || source.lat;
+        const lon = source.longitude || source.lon || source.lng;
+        
+        if (typeof lat === 'number' && typeof lon === 'number' && 
+            lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+          return {
+            lat: lat,
+            lon: lon,
+            source: "IRL Pro GPS"
+          };
+        }
+      }
+    }
+    
+    return null;
+  }
+  
+  // Method 2: Try browser GPS
+  function getBrowserGPS() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation not supported'));
+        return;
+      }
+  
+      placeEl.textContent = "Getting GPS fix...";
+      
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            accuracy: Math.round(position.coords.accuracy),
+            source: `Browser GPS (±${Math.round(position.coords.accuracy)}m)`
+          });
+        },
+        (error) => {
+          console.log('GPS Error:', error.message);
+          reject(error);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 30000
+        }
+      );
+    });
+  }
+  
+  // Method 3: Fallback to IP location
+  async function getLocationFromGoogle(){
+    const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ considerIp: true })
+    });
+    const data = await res.json();
     return {
-      lat: window.locationData.latitude,
-      lon: window.locationData.longitude,
-      source: "IRL Pro GPS"
+      lat: data.location.lat,
+      lon: data.location.lng,
+      source: "IP Location"
     };
   }
-  return null;
-}
-
-// Method 2: Try browser GPS
-function getBrowserGPS() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation not supported'));
-      return;
-    }
-
-    placeEl.textContent = "Getting GPS fix...";
+  
+  // Add listeners for potential runtime location updates
+  function setupLocationListeners() {
+    // Listen for custom events that IRL Pro might dispatch
+    const eventNames = ['locationUpdate', 'gpsUpdate', 'positionUpdate', 'irlLocationUpdate'];
+    eventNames.forEach(eventName => {
+      window.addEventListener(eventName, (event) => {
+        console.log(`Received ${eventName}:`, event.detail);
+        if (event.detail && event.detail.latitude && event.detail.longitude) {
+          const locationData = {
+            lat: event.detail.latitude,
+            lon: event.detail.longitude,
+            source: "IRL Pro Event"
+          };
+          updateLocationAndWeatherWithData(locationData);
+        }
+      });
+    });
     
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        resolve({
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-          accuracy: Math.round(position.coords.accuracy),
-          source: `Browser GPS (±${Math.round(position.coords.accuracy)}m)`
-        });
-      },
-      (error) => {
-        console.log('GPS Error:', error.message);
-        reject(error);
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 30000
+    // Watch for changes in window.locationData
+    let lastLocationCheck = null;
+    setInterval(() => {
+      const current = JSON.stringify(getIRLProLocation());
+      if (current !== lastLocationCheck && current !== 'null') {
+        lastLocationCheck = current;
+        updateLocationAndWeather();
       }
-    );
-  });
-}
-
-// Method 3: Fallback to IP location
-async function getLocationFromGoogle(){
-  const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ considerIp: true })
-  });
-  const data = await res.json();
-  return {
-    lat: data.location.lat,
-    lon: data.location.lng,
-    source: "IP Location"
-  };
-}
-
-async function updateLocationAndWeather(){
-  try {
-    let locationData = null;
-    
-    // Try Method 1: IRL Pro location data
-    locationData = getIRLProLocation();
-    if (locationData) {
-      console.log('Using IRL Pro location');
+    }, 2000); // Check every 2 seconds
+  }
+  
+  async function updateLocationAndWeatherWithData(locationData) {
+    try {
+      if (locationData) {
+        placeEl.textContent = "Loading location...";
+        const label = await reverseGeocode(locationData.lat, locationData.lon);
+        placeEl.textContent = label;
+        fetchWeather(locationData.lat, locationData.lon);
+        console.log(`${locationData.source}: ${locationData.lat}, ${locationData.lon}`);
+      }
+    } catch (e) {
+      console.error("Failed to update location with provided data:", e);
     }
-    
-    // Try Method 2: Browser GPS (if no IRL Pro data)
-    if (!locationData) {
+  }
+  
+  async function updateLocationAndWeather(){
+    try {
+      let locationData = null;
+      
+      // Try Method 1: IRL Pro location data (with enhanced detection)
+      locationData = getIRLProLocation();
+      if (locationData) {
+        console.log('Using IRL Pro location');
+        await updateLocationAndWeatherWithData(locationData);
+        return;
+      }
+      
+      // Try Method 2: Browser GPS (if no IRL Pro data)
       try {
         locationData = await getBrowserGPS();
         console.log('Using Browser GPS');
+        await updateLocationAndWeatherWithData(locationData);
+        return;
       } catch (gpsError) {
         console.log('Browser GPS failed:', gpsError.message);
       }
-    }
-    
-    // Try Method 3: IP location fallback
-    if (!locationData) {
+      
+      // Try Method 3: IP location fallback
       placeEl.textContent = "Using IP location...";
       locationData = await getLocationFromGoogle();
       console.log('Using IP location');
+      await updateLocationAndWeatherWithData(locationData);
+      
+    } catch (e) {
+      placeEl.textContent = "Location N/A";
+      weatherEl.textContent = "Weather N/A";
+      console.error("Failed to get location or weather:", e);
     }
-    
-    // Update the display
-    if (locationData) {
-      placeEl.textContent = "Loading location...";
-      const label = await reverseGeocode(locationData.lat, locationData.lon);
-      placeEl.textContent = label;
-      fetchWeather(locationData.lat, locationData.lon);
-      console.log(`${locationData.source}: ${locationData.lat}, ${locationData.lon}`);
-    }
-    
-  } catch (e) {
-    placeEl.textContent = "Location N/A";
-    weatherEl.textContent = "Weather N/A";
-    console.error("Failed to get location or weather:", e);
   }
-}
-
-setInterval(updateLocationAndWeather, 90000);
-updateLocationAndWeather();
-</script>
-</body></html>
+  
+  // Setup everything
+  setupLocationListeners();
+  setInterval(updateLocationAndWeather, 90000);
+  updateLocationAndWeather();
+  
+  // Debug information
+  console.log('IRL Pro GPS Overlay loaded');
+  console.log('Available objects:', {
+    locationData: window.locationData,
+    irlpro: window.irlpro,
+    streamingApp: window.streamingApp,
+    gpsData: window.gpsData,
+    Android: window.Android,
+    webkit: window.webkit
+  });
+  </script>
+  </body></html>
