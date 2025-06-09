@@ -5,6 +5,7 @@
   #info{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;}
   .row{display:flex;align-items:center;font-size:15px;font-weight:500;text-shadow:0 0 4px #000,0 0 8px #000;}
   .row i{width:18px;margin-right:6px;text-align:center;}
+  #debug{position:absolute;top:8px;right:8px;font-size:10px;max-width:300px;background:rgba(0,0,0,0.7);padding:4px;border-radius:4px;display:none;}
   </style></head><body>
   
   <div id="info">
@@ -13,11 +14,36 @@
     <div class="row"><i class="fa-solid fa-cloud"></i><span id="weather">--°C</span></div>
   </div>
   
+  <div id="debug"></div>
+  
   <script>
   const placeEl = document.getElementById('place');
   const weatherEl = document.getElementById('weather');
+  const debugEl = document.getElementById('debug');
   const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c';
   const GOOGLE_GEO_KEY = 'AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU';
+  
+  let debugMode = false;
+  let lastDebugLog = [];
+  
+  function debugLog(message) {
+    console.log(message);
+    lastDebugLog.push(new Date().toLocaleTimeString() + ': ' + message);
+    if (lastDebugLog.length > 10) lastDebugLog.shift();
+    if (debugMode) {
+      debugEl.style.display = 'block';
+      debugEl.innerHTML = lastDebugLog.join('<br>');
+    }
+  }
+  
+  // Toggle debug mode with Alt+D
+  document.addEventListener('keydown', (e) => {
+    if (e.altKey && e.key === 'd') {
+      debugMode = !debugMode;
+      debugEl.style.display = debugMode ? 'block' : 'none';
+      if (debugMode) debugEl.innerHTML = lastDebugLog.join('<br>');
+    }
+  });
   
   function tick(){
     const now = new Date();
@@ -50,8 +76,49 @@
     weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
   }
   
+  // Deep scan for any GPS-related data in the global scope
+  function scanGlobalScope() {
+    const found = {};
+    const keywords = ['location', 'gps', 'geo', 'position', 'coord', 'lat', 'lng', 'lon'];
+    
+    // Scan all window properties
+    for (const prop in window) {
+      if (keywords.some(keyword => prop.toLowerCase().includes(keyword))) {
+        try {
+          const value = window[prop];
+          if (value && typeof value === 'object') {
+            found[prop] = value;
+          }
+        } catch (e) {
+          // Some properties might throw errors when accessed
+        }
+      }
+    }
+    
+    return found;
+  }
+  
+  // Check DOM for hidden GPS data
+  function scanDOMForGPS() {
+    const elements = document.querySelectorAll('[data-lat], [data-lng], [data-lon], [data-latitude], [data-longitude], [data-gps], [data-location]');
+    const found = [];
+    
+    elements.forEach(el => {
+      const data = {};
+      ['lat', 'lng', 'lon', 'latitude', 'longitude', 'gps', 'location'].forEach(attr => {
+        const value = el.dataset[attr];
+        if (value) data[attr] = value;
+      });
+      if (Object.keys(data).length > 0) found.push(data);
+    });
+    
+    return found;
+  }
+  
   // Method 1: Enhanced IRL Pro location data detection
   function getIRLProLocation() {
+    debugLog('Scanning for IRL Pro GPS data...');
+    
     // Try multiple possible ways IRL Pro might expose location data
     const possibleSources = [
       // Original attempt
@@ -60,10 +127,13 @@
       // Common patterns for streaming apps
       window.irlpro?.location,
       window.irlpro?.gps,
+      window.irlpro?.coords,
       window.streamingApp?.location,
       window.gpsData,
       window.location_data,
       window.currentLocation,
+      window.coords,
+      window.coordinates,
       
       // Check for URL parameters (some apps pass data this way)
       (() => {
@@ -71,6 +141,7 @@
         const lat = params.get('lat') || params.get('latitude');
         const lon = params.get('lon') || params.get('lng') || params.get('longitude');
         if (lat && lon) {
+          debugLog(`Found GPS in URL params: ${lat}, ${lon}`);
           return { latitude: parseFloat(lat), longitude: parseFloat(lon) };
         }
         return null;
@@ -79,23 +150,59 @@
       // Check localStorage (some apps store location here)
       (() => {
         try {
-          const stored = localStorage.getItem('gpsLocation') || localStorage.getItem('currentLocation');
-          return stored ? JSON.parse(stored) : null;
+          const keys = ['gpsLocation', 'currentLocation', 'location', 'coords', 'position'];
+          for (const key of keys) {
+            const stored = localStorage.getItem(key);
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              if (parsed && (parsed.latitude || parsed.lat) && (parsed.longitude || parsed.lon || parsed.lng)) {
+                debugLog(`Found GPS in localStorage[${key}]: ${JSON.stringify(parsed)}`);
+                return parsed;
+              }
+            }
+          }
         } catch (e) {
-          return null;
+          debugLog(`localStorage scan error: ${e.message}`);
         }
+        return null;
+      })(),
+      
+      // Check sessionStorage
+      (() => {
+        try {
+          const keys = ['gpsLocation', 'currentLocation', 'location', 'coords', 'position'];
+          for (const key of keys) {
+            const stored = sessionStorage.getItem(key);
+            if (stored) {
+              const parsed = JSON.parse(stored);
+              if (parsed && (parsed.latitude || parsed.lat) && (parsed.longitude || parsed.lon || parsed.lng)) {
+                debugLog(`Found GPS in sessionStorage[${key}]: ${JSON.stringify(parsed)}`);
+                return parsed;
+              }
+            }
+          }
+        } catch (e) {
+          debugLog(`sessionStorage scan error: ${e.message}`);
+        }
+        return null;
       })(),
       
       // Check if there's a global GPS object
       window.GPS,
       window.gps,
+      window.GEO,
+      window.geo,
+      window.LOCATION,
+      window.COORDS,
       
       // Check for Android WebView interface
       window.Android?.getLocation ? (() => {
         try {
           const loc = window.Android.getLocation();
+          debugLog(`Android interface returned: ${loc}`);
           return typeof loc === 'string' ? JSON.parse(loc) : loc;
         } catch (e) {
+          debugLog(`Android interface error: ${e.message}`);
           return null;
         }
       })() : null,
@@ -103,15 +210,28 @@
       // Check for iOS WebKit message handlers
       window.webkit?.messageHandlers?.locationHandler ? (() => {
         try {
-          // This is async, but we'll try anyway
+          debugLog('Found iOS WebKit locationHandler');
           return window.webkit.messageHandlers.locationHandler.postMessage('getLocation');
         } catch (e) {
+          debugLog(`iOS WebKit error: ${e.message}`);
           return null;
         }
-      })() : null
+      })() : null,
+      
+      // Manual injection point for testing
+      window.manualGPS,
+      
+      // Check global scope scan results
+      ...Object.values(scanGlobalScope()),
+      
+      // Check DOM for GPS data
+      ...scanDOMForGPS()
     ];
     
-    for (const source of possibleSources) {
+    debugLog(`Checking ${possibleSources.filter(s => s !== null).length} potential GPS sources`);
+    
+    for (let i = 0; i < possibleSources.length; i++) {
+      const source = possibleSources[i];
       if (source && typeof source === 'object' && 
           (source.latitude || source.lat) && 
           (source.longitude || source.lon || source.lng)) {
@@ -122,15 +242,19 @@
         
         if (typeof lat === 'number' && typeof lon === 'number' && 
             lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+          debugLog(`GPS found in source ${i}: ${lat}, ${lon}`);
           return {
             lat: lat,
             lon: lon,
             source: "IRL Pro GPS"
           };
+        } else {
+          debugLog(`Invalid coordinates in source ${i}: lat=${lat}, lon=${lon}`);
         }
       }
     }
     
+    debugLog('No valid GPS data found in any source');
     return null;
   }
   
@@ -143,9 +267,11 @@
       }
   
       placeEl.textContent = "Getting GPS fix...";
+      debugLog('Attempting browser GPS...');
       
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          debugLog(`Browser GPS success: ${position.coords.latitude}, ${position.coords.longitude}`);
           resolve({
             lat: position.coords.latitude,
             lon: position.coords.longitude,
@@ -154,7 +280,7 @@
           });
         },
         (error) => {
-          console.log('GPS Error:', error.message);
+          debugLog(`Browser GPS error: ${error.message}`);
           reject(error);
         },
         {
@@ -168,12 +294,14 @@
   
   // Method 3: Fallback to IP location
   async function getLocationFromGoogle(){
+    debugLog('Using IP geolocation fallback...');
     const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ considerIp: true })
     });
     const data = await res.json();
+    debugLog(`IP location: ${data.location.lat}, ${data.location.lng}`);
     return {
       lat: data.location.lat,
       lon: data.location.lng,
@@ -184,10 +312,10 @@
   // Add listeners for potential runtime location updates
   function setupLocationListeners() {
     // Listen for custom events that IRL Pro might dispatch
-    const eventNames = ['locationUpdate', 'gpsUpdate', 'positionUpdate', 'irlLocationUpdate'];
+    const eventNames = ['locationUpdate', 'gpsUpdate', 'positionUpdate', 'irlLocationUpdate', 'coordsUpdate'];
     eventNames.forEach(eventName => {
       window.addEventListener(eventName, (event) => {
-        console.log(`Received ${eventName}:`, event.detail);
+        debugLog(`Received event ${eventName}: ${JSON.stringify(event.detail)}`);
         if (event.detail && event.detail.latitude && event.detail.longitude) {
           const locationData = {
             lat: event.detail.latitude,
@@ -199,15 +327,26 @@
       });
     });
     
-    // Watch for changes in window.locationData
+    // Watch for changes in potential GPS sources
     let lastLocationCheck = null;
     setInterval(() => {
       const current = JSON.stringify(getIRLProLocation());
       if (current !== lastLocationCheck && current !== 'null') {
         lastLocationCheck = current;
+        debugLog('GPS data changed, updating...');
         updateLocationAndWeather();
       }
     }, 2000); // Check every 2 seconds
+    
+    // Watch for new global variables
+    const originalKeys = new Set(Object.keys(window));
+    setInterval(() => {
+      const newKeys = Object.keys(window).filter(key => !originalKeys.has(key));
+      if (newKeys.length > 0) {
+        debugLog(`New global variables detected: ${newKeys.join(', ')}`);
+        newKeys.forEach(key => originalKeys.add(key));
+      }
+    }, 5000);
   }
   
   async function updateLocationAndWeatherWithData(locationData) {
@@ -217,10 +356,10 @@
         const label = await reverseGeocode(locationData.lat, locationData.lon);
         placeEl.textContent = label;
         fetchWeather(locationData.lat, locationData.lon);
-        console.log(`${locationData.source}: ${locationData.lat}, ${locationData.lon}`);
+        debugLog(`Location updated: ${locationData.source} - ${locationData.lat}, ${locationData.lon}`);
       }
     } catch (e) {
-      console.error("Failed to update location with provided data:", e);
+      debugLog(`Failed to update location: ${e.message}`);
     }
   }
   
@@ -231,7 +370,7 @@
       // Try Method 1: IRL Pro location data (with enhanced detection)
       locationData = getIRLProLocation();
       if (locationData) {
-        console.log('Using IRL Pro location');
+        debugLog('Using IRL Pro location');
         await updateLocationAndWeatherWithData(locationData);
         return;
       }
@@ -239,40 +378,57 @@
       // Try Method 2: Browser GPS (if no IRL Pro data)
       try {
         locationData = await getBrowserGPS();
-        console.log('Using Browser GPS');
+        debugLog('Using Browser GPS');
         await updateLocationAndWeatherWithData(locationData);
         return;
       } catch (gpsError) {
-        console.log('Browser GPS failed:', gpsError.message);
+        debugLog(`Browser GPS failed: ${gpsError.message}`);
       }
       
       // Try Method 3: IP location fallback
       placeEl.textContent = "Using IP location...";
       locationData = await getLocationFromGoogle();
-      console.log('Using IP location');
+      debugLog('Using IP location');
       await updateLocationAndWeatherWithData(locationData);
       
     } catch (e) {
       placeEl.textContent = "Location N/A";
       weatherEl.textContent = "Weather N/A";
-      console.error("Failed to get location or weather:", e);
+      debugLog(`Complete failure: ${e.message}`);
     }
   }
+  
+  // Manual GPS injection for testing (open console and run: window.manualGPS = {lat: 32.7767, lon: -96.7970})
+  window.injectGPS = function(lat, lon) {
+    window.manualGPS = {latitude: lat, longitude: lon};
+    debugLog(`Manual GPS injected: ${lat}, ${lon}`);
+    updateLocationAndWeather();
+  };
   
   // Setup everything
   setupLocationListeners();
   setInterval(updateLocationAndWeather, 90000);
   updateLocationAndWeather();
   
-  // Debug information
-  console.log('IRL Pro GPS Overlay loaded');
-  console.log('Available objects:', {
-    locationData: window.locationData,
-    irlpro: window.irlpro,
-    streamingApp: window.streamingApp,
-    gpsData: window.gpsData,
-    Android: window.Android,
-    webkit: window.webkit
+  // Debug information - extensive logging
+  debugLog('IRL Pro GPS Overlay loaded with enhanced detection');
+  debugLog(`User agent: ${navigator.userAgent}`);
+  debugLog(`URL: ${window.location.href}`);
+  
+  const globalScan = scanGlobalScope();
+  debugLog(`Global GPS-related objects: ${Object.keys(globalScan).join(', ') || 'none'}`);
+  
+  const domScan = scanDOMForGPS();
+  debugLog(`DOM GPS data elements: ${domScan.length}`);
+  
+  // Log all interesting window properties
+  const interestingProps = ['locationData', 'irlpro', 'streamingApp', 'gpsData', 'Android', 'webkit', 'GPS', 'gps'];
+  interestingProps.forEach(prop => {
+    if (window[prop]) {
+      debugLog(`window.${prop} exists: ${typeof window[prop]}`);
+    }
   });
+  
+  debugLog('Press Alt+D to toggle debug display');
   </script>
   </body></html>
