@@ -16,7 +16,8 @@ html,body{margin:0;padding:0;background:transparent;color:#fff;font-family:sans-
 <script>
 const placeEl = document.getElementById('place');
 const weatherEl = document.getElementById('weather');
-const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c'; // Your OpenWeatherMap key
+const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c'; // OpenWeatherMap API Key
+const GOOGLE_GEO_KEY = 'AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU'; // Google Geolocation API Key
 
 function tick(){
   const now = new Date();
@@ -49,20 +50,38 @@ async function fetchWeather(lat, lon){
   weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
 }
 
-async function updateFromGPS(){
-  const data = window.locationData;
-  if (!data || !data.latitude || !data.longitude) {
-    placeEl.textContent = "Waiting for GPS...";
-    return;
-  }
-
-  const lat = data.latitude;
-  const lon = data.longitude;
-  const label = await reverseGeocode(lat, lon);
-  placeEl.textContent = label;
-  fetchWeather(lat, lon);
+async function getLocationFromGoogle(){
+  const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ considerIp: true })
+  });
+  const data = await res.json();
+  return data.location;
 }
 
-setInterval(updateFromGPS, 10000); // update every 10 seconds
+async function updateLocationAndWeather(){
+  try {
+    let lat, lon;
+    if (window.locationData && window.locationData.latitude) {
+      lat = window.locationData.latitude;
+      lon = window.locationData.longitude;
+    } else {
+      const loc = await getLocationFromGoogle();
+      lat = loc.lat;
+      lon = loc.lng;
+    }
+    const label = await reverseGeocode(lat, lon);
+    placeEl.textContent = label;
+    fetchWeather(lat, lon);
+  } catch (e) {
+    placeEl.textContent = "Location N/A";
+    weatherEl.textContent = "Weather N/A";
+    console.error("Failed to get location or weather:", e);
+  }
+}
+
+setInterval(updateLocationAndWeather, 10000); // every 10 seconds
+updateLocationAndWeather();
 </script>
 </body></html>
