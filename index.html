@@ -19,6 +19,17 @@ const weatherEl = document.getElementById('weather');
 const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c';
 const GOOGLE_GEO_KEY = 'AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU';
 
+let lastKnownLocation = null;
+let isIRLPro = false;
+let locationAttempts = 0;
+
+// Detect if running in IRL Pro
+function detectEnvironment() {
+  const userAgent = navigator.userAgent.toLowerCase();
+  isIRLPro = userAgent.includes('irlpro') || window.IRLPro || document.title.includes('IRL');
+  console.log('Environment:', isIRLPro ? 'IRL Pro' : 'Browser');
+}
+
 function tick(){
   const now = new Date();
   const offset = now.getTimezoneOffset() / -60;
@@ -50,108 +61,136 @@ async function fetchWeather(lat, lon){
   weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
 }
 
-// Get precise GPS location using HTML5 Geolocation API
-function getPreciseGPSLocation() {
+// Check for IRL Pro injected location data
+function checkIRLProLocation() {
+  const possibleProps = [
+    'locationData', 'gpsData', 'position', 'coordinates', 
+    'location', 'gps', 'currentLocation', 'deviceLocation'
+  ];
+  
+  for (const prop of possibleProps) {
+    if (window[prop] && typeof window[prop] === 'object') {
+      const data = window[prop];
+      if (data.latitude && data.longitude) {
+        console.log(`Found IRL Pro location in window.${prop}:`, data);
+        return { lat: data.latitude, lon: data.longitude, source: `IRL Pro (${prop})` };
+      }
+    }
+  }
+  return null;
+}
+
+// Get GPS using browser geolocation (for desktop/browser testing)
+function getBrowserGPS() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
       reject(new Error('Geolocation not supported'));
       return;
     }
 
-    placeEl.textContent = "Getting GPS fix...";
-    
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        const accuracy = position.coords.accuracy;
-        console.log(`GPS: ${lat}, ${lon} (accuracy: ${accuracy}m)`);
-        resolve({ lat, lon, accuracy });
+        resolve({ 
+          lat: position.coords.latitude, 
+          lon: position.coords.longitude, 
+          accuracy: position.coords.accuracy,
+          source: `Browser GPS (±${Math.round(position.coords.accuracy)}m)`
+        });
       },
       (error) => {
-        console.error('GPS error:', error);
+        console.log('Browser GPS error:', error.message);
         reject(error);
       },
       {
-        enableHighAccuracy: true,  // Request high accuracy GPS
-        timeout: 30000,           // 30 second timeout
-        maximumAge: 0             // Don't use cached location
+        enableHighAccuracy: true,
+        timeout: isIRLPro ? 5000 : 15000, // Shorter timeout in IRL Pro
+        maximumAge: isIRLPro ? 60000 : 30000
       }
     );
   });
 }
 
-// Fallback to Google IP geolocation
-async function getLocationFromGoogle(){
+// Fallback Google IP geolocation
+async function getGoogleIPLocation(){
   const res = await fetch("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ considerIp: true })
   });
   const data = await res.json();
-  return data.location;
+  return { lat: data.location.lat, lon: data.location.lng, source: "IP Location" };
 }
 
 async function updateLocationAndWeather(){
   try {
-    let lat, lon, source;
+    locationAttempts++;
+    let locationData = null;
     
-    // First try IRL Pro window.locationData
-    if (window.locationData && window.locationData.latitude) {
-      lat = window.locationData.latitude;
-      lon = window.locationData.longitude;
-      source = "IRL Pro GPS";
-    } else {
+    // Strategy 1: Check for IRL Pro injected data
+    locationData = checkIRLProLocation();
+    
+    // Strategy 2: Try browser GPS (mainly for testing)
+    if (!locationData && !isIRLPro && locationAttempts <= 2) {
       try {
-        // Try HTML5 Geolocation API (this is likely what "Web overlay geo enabled" enables)
-        const gpsData = await getPreciseGPSLocation();
-        lat = gpsData.lat;
-        lon = gpsData.lon;
-        source = `Precise GPS (±${gpsData.accuracy}m)`;
-      } catch (gpsError) {
-        // Fallback to IP geolocation
-        placeEl.textContent = "Using IP location...";
-        const loc = await getLocationFromGoogle();
-        lat = loc.lat;
-        lon = loc.lng;
-        source = "IP Location";
+        placeEl.textContent = "Getting GPS fix...";
+        locationData = await getBrowserGPS();
+      } catch (e) {
+        console.log('Browser GPS failed:', e.message);
       }
     }
     
-    placeEl.textContent = "Loading location...";
-    const label = await reverseGeocode(lat, lon);
-    placeEl.textContent = label;
-    fetchWeather(lat, lon);
+    // Strategy 3: Fallback to IP location
+    if (!locationData) {
+      placeEl.textContent = "Using IP location...";
+      locationData = await getGoogleIPLocation();
+    }
     
-    console.log(`Location source: ${source} - ${lat}, ${lon}`);
+    // Update display
+    if (locationData) {
+      lastKnownLocation = locationData;
+      placeEl.textContent = "Loading location...";
+      const label = await reverseGeocode(locationData.lat, locationData.lon);
+      placeEl.textContent = label;
+      fetchWeather(locationData.lat, locationData.lon);
+      console.log(`Location: ${locationData.source} - ${locationData.lat}, ${locationData.lon}`);
+    }
     
   } catch (e) {
     placeEl.textContent = "Location N/A";
     weatherEl.textContent = "Weather N/A";
-    console.error("Failed to get location or weather:", e);
+    console.error("Location update failed:", e);
   }
 }
 
-// Watch for location changes (for real-time GPS updates)
-if (navigator.geolocation) {
-  navigator.geolocation.watchPosition(
-    (position) => {
-      // Only update if we get a good GPS fix
-      if (position.coords.accuracy < 100) { // Less than 100m accuracy
-        console.log('GPS update:', position.coords.latitude, position.coords.longitude);
-        updateLocationAndWeather();
-      }
-    },
-    (error) => console.log('GPS watch error:', error),
-    {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 30000
+// Initialize
+detectEnvironment();
+
+// Different update strategies for different environments
+if (isIRLPro) {
+  // In IRL Pro: Check frequently for injected data, then less frequently
+  let rapidChecks = 0;
+  const rapidChecker = setInterval(() => {
+    updateLocationAndWeather();
+    rapidChecks++;
+    if (rapidChecks >= 10) { // Check rapidly for first 10 attempts
+      clearInterval(rapidChecker);
+      setInterval(updateLocationAndWeather, 30000); // Then every 30 seconds
     }
-  );
+  }, 3000); // Every 3 seconds initially
+} else {
+  // In browser: Normal checking
+  setInterval(updateLocationAndWeather, 15000);
 }
 
-setInterval(updateLocationAndWeather, 30000); // Check every 30 seconds
-updateLocationAndWeather(); // Initial load
+// Initial load
+updateLocationAndWeather();
+
+// For IRL Pro: Listen for potential location events
+if (isIRLPro) {
+  ['locationupdate', 'gpsupdate', 'positionchange'].forEach(eventName => {
+    document.addEventListener(eventName, updateLocationAndWeather);
+    window.addEventListener(eventName, updateLocationAndWeather);
+  });
+}
 </script>
 </body></html>
