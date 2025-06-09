@@ -50,8 +50,67 @@
     weatherEl.textContent = `${c}°C | ${f}°F, ${desc}`;
   }
   
+  // Intercept and monitor any GPS-related calls
+  let interceptedGPS = null;
+  
+  // Override geolocation methods to intercept GPS data
+  if (navigator.geolocation) {
+    const originalGetCurrentPosition = navigator.geolocation.getCurrentPosition;
+    const originalWatchPosition = navigator.geolocation.watchPosition;
+    
+    navigator.geolocation.getCurrentPosition = function(success, error, options) {
+      const wrappedSuccess = function(position) {
+        interceptedGPS = {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+          source: "Intercepted GPS"
+        };
+        if (success) success(position);
+      };
+      return originalGetCurrentPosition.call(this, wrappedSuccess, error, options);
+    };
+    
+    navigator.geolocation.watchPosition = function(success, error, options) {
+      const wrappedSuccess = function(position) {
+        interceptedGPS = {
+          lat: position.coords.latitude,
+          lon: position.coords.longitude,
+          source: "Intercepted GPS Watch"
+        };
+        if (success) success(position);
+      };
+      return originalWatchPosition.call(this, wrappedSuccess, error, options);
+    };
+  }
+
   // Method 1: Try IRL Pro location data
   function getIRLProLocation() {
+    // Check intercepted GPS first
+    if (interceptedGPS) {
+      return interceptedGPS;
+    }
+    
+    // Scan all global variables for GPS-like data
+    try {
+      for (let key in window) {
+        if (key.toLowerCase().includes('gps') || key.toLowerCase().includes('location') || 
+            key.toLowerCase().includes('coord') || key.toLowerCase().includes('position')) {
+          try {
+            const value = window[key];
+            if (value && typeof value === 'object') {
+              const lat = value.latitude || value.lat || value.Latitude || value.LAT;
+              const lon = value.longitude || value.lon || value.lng || value.Longitude || value.LON || value.LNG;
+              
+              if (typeof lat === 'number' && typeof lon === 'number' && 
+                  lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                return { lat, lon, source: `Global variable: ${key}` };
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+    
     // Check URL parameters first
     try {
       const urlParams = new URLSearchParams(window.location.search);
@@ -356,28 +415,66 @@
         reject(new Error('Geolocation not supported'));
         return;
       }
-  
+
       placeEl.textContent = "Getting GPS fix...";
       
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-            accuracy: Math.round(position.coords.accuracy),
-            source: `Browser GPS (±${Math.round(position.coords.accuracy)}m)`
-          });
+      // Try multiple GPS configurations
+      const gpsConfigs = [
+        // High accuracy, long timeout
+        {
+          enableHighAccuracy: true,
+          timeout: 30000,
+          maximumAge: 0
         },
-        (error) => {
-          console.log('GPS Error:', error.message);
-          reject(error);
-        },
+        // Medium accuracy, shorter timeout
         {
           enableHighAccuracy: true,
           timeout: 15000,
+          maximumAge: 10000
+        },
+        // Low accuracy, very short timeout
+        {
+          enableHighAccuracy: false,
+          timeout: 5000,
           maximumAge: 30000
+        },
+        // Network-based location
+        {
+          enableHighAccuracy: false,
+          timeout: 10000,
+          maximumAge: 60000
         }
-      );
+      ];
+      
+      let attemptCount = 0;
+      
+      function tryGPSConfig() {
+        if (attemptCount >= gpsConfigs.length) {
+          reject(new Error('All GPS attempts failed'));
+          return;
+        }
+        
+        const config = gpsConfigs[attemptCount];
+        attemptCount++;
+        
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            resolve({
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+              accuracy: Math.round(position.coords.accuracy),
+              source: `Browser GPS (±${Math.round(position.coords.accuracy)}m, attempt ${attemptCount})`
+            });
+          },
+          (error) => {
+            // Try next configuration
+            setTimeout(tryGPSConfig, 500);
+          },
+          config
+        );
+      }
+      
+      tryGPSConfig();
     });
   }
   
