@@ -57,11 +57,13 @@
   const GOOGLE_GEO_KEY = 'AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU';
   
   let lastKnownLocation = null;
+  let gpsSuccessful = false;
   let gpsAttempted = false;
   let userHasInteracted = false;
   
   // Detect if we're on mobile
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   
   function debugLog(message) {
     console.log(message);
@@ -121,7 +123,7 @@
       }
       
       // Log current page protocol and permissions
-      debugLog(`Protocol: ${location.protocol}, Mobile: ${isMobile}, UserTriggered: ${userTriggered}`);
+      debugLog(`Protocol: ${location.protocol}, Mobile: ${isMobile}, iOS: ${isIOS}, UserTriggered: ${userTriggered}`);
       
       // Check if HTTPS is required (most mobile browsers require it)
       if (location.protocol !== 'https:' && location.hostname !== 'localhost' && !location.hostname.includes('127.0.0.1') && !location.protocol.includes('file:')) {
@@ -133,16 +135,17 @@
       
       const options = {
         enableHighAccuracy: true,
-        timeout: isMobile ? 45000 : 15000, // Even longer timeout for mobile
-        maximumAge: userTriggered ? 0 : 300000 // 5 minutes cache unless user triggered
+        timeout: isIOS ? 60000 : (isMobile ? 45000 : 15000), // Extra long timeout for iOS
+        maximumAge: gpsSuccessful ? 30000 : 0 // Use 30sec cache if GPS was successful before
       };
       
-      debugLog(`GPS options: timeout=${options.timeout}ms, highAccuracy=${options.enableHighAccuracy}`);
+      debugLog(`GPS options: timeout=${options.timeout}ms, highAccuracy=${options.enableHighAccuracy}, maxAge=${options.maximumAge}ms`);
       
       navigator.geolocation.getCurrentPosition(
         (position) => {
           debugLog(`GPS Success: ±${Math.round(position.coords.accuracy)}m accuracy`);
           gpsButton.style.display = 'none';
+          gpsSuccessful = true;
           resolve({
             lat: position.coords.latitude,
             lon: position.coords.longitude,
@@ -160,11 +163,13 @@
           const errorMsg = `GPS Error: ${errorMessages[error.code] || error.message}`;
           debugLog(errorMsg);
           
-          // Show GPS button on mobile if GPS fails
-          if (isMobile) {
+          // Show GPS button on mobile if GPS fails and it's not a timeout during refresh
+          if (isMobile && (!gpsSuccessful || userTriggered)) {
             gpsButton.style.display = 'block';
             if (error.code === 1) {
-              placeEl.textContent = "GPS permission denied - tap to retry";
+              placeEl.textContent = isIOS ? "GPS permission needed - tap to retry" : "GPS permission denied - tap to retry";
+            } else if (error.code === 3) {
+              placeEl.textContent = "GPS timeout - tap to retry";
             } else {
               placeEl.textContent = "GPS failed - tap to retry";
             }
@@ -211,8 +216,8 @@
       }
       
       // Try Method 2: Browser GPS
-      // On mobile, only try GPS if user has interacted or it's user-triggered
-      if (!locationData && (!isMobile || userTriggered || (userHasInteracted && !gpsAttempted))) {
+      // Try GPS automatically, or if GPS was successful before, or if user triggered
+      if (!locationData && (!gpsAttempted || gpsSuccessful || userTriggered)) {
         try {
           locationData = await getBrowserGPS(userTriggered);
           debugLog('GPS location acquired successfully');
@@ -221,22 +226,27 @@
           debugLog(`GPS failed: ${gpsError.message}`);
           gpsAttempted = true;
           
-          // On mobile, show the GPS button if GPS fails
-          if (isMobile) {
+          // If GPS was successful before but fails now, keep trying (maybe temporary issue)
+          if (gpsSuccessful && !userTriggered) {
+            debugLog('GPS failed but was successful before, will retry next time');
+          }
+          
+          // On mobile, show the GPS button if GPS fails and we don't have a successful fallback
+          if (isMobile && (!gpsSuccessful || userTriggered)) {
             gpsButton.style.display = 'block';
           }
         }
       }
       
-      // Try Method 3: IP location fallback
-      if (!locationData) {
+      // Try Method 3: IP location fallback (only if GPS was never successful)
+      if (!locationData && !gpsSuccessful) {
         if (!userTriggered) { // Don't fallback to IP if user specifically requested GPS
           placeEl.textContent = "Using IP location...";
           locationData = await getLocationFromGoogle();
-          debugLog('Using IP-based location');
+          debugLog('Using IP-based location as fallback');
           
           // Show GPS button on mobile to allow manual GPS attempt
-          if (isMobile && !gpsAttempted) {
+          if (isMobile) {
             gpsButton.style.display = 'block';
           }
         } else {
@@ -244,6 +254,12 @@
           debugLog('GPS request failed, no fallback');
           return;
         }
+      }
+      
+      // Use last known GPS location if current attempt failed but we had GPS before
+      if (!locationData && gpsSuccessful && lastKnownLocation && lastKnownLocation.source.includes('GPS')) {
+        locationData = lastKnownLocation;
+        debugLog('Using last known GPS location');
       }
       
       // Update the display
@@ -276,7 +292,7 @@
   });
   
   placeEl.addEventListener('click', () => {
-    if (placeEl.className.includes('location-clickable') || isMobile) {
+    if (placeEl.className.includes('location-clickable') || (isMobile && !gpsSuccessful)) {
       debugLog('Location text clicked');
       updateLocationAndWeather(true);
     }
@@ -293,12 +309,7 @@
   
   // Check permissions and setup
   if (isMobile) {
-    debugLog('Mobile device detected');
-    
-    // Show GPS button immediately on mobile
-    gpsButton.style.display = 'block';
-    placeEl.textContent = "Tap to enable GPS location";
-    placeEl.className = 'location-clickable';
+    debugLog(`Mobile device detected: ${isIOS ? 'iOS' : 'Android'}`);
     
     // Check permissions if available
     if ('permissions' in navigator) {
@@ -306,6 +317,7 @@
         debugLog(`Geolocation permission: ${result.state}`);
         if (result.state === 'denied') {
           placeEl.textContent = "GPS permission denied";
+          gpsButton.style.display = 'block';
           debugLog('Geolocation permission was denied');
         }
       }).catch(e => {
@@ -316,23 +328,10 @@
     debugLog('Desktop device detected');
   }
   
+  // Auto-refresh every 90 seconds
   setInterval(() => updateLocationAndWeather(false), 90000);
   
-  // On mobile, don't auto-start GPS - wait for user interaction
-  if (!isMobile) {
-    updateLocationAndWeather(false);
-  } else {
-    // Just get IP location first on mobile
-    getLocationFromGoogle().then(data => {
-      placeEl.textContent = "Loading IP location...";
-      reverseGeocode(data.lat, data.lon).then(label => {
-        placeEl.textContent = label + " (IP)";
-        fetchWeather(data.lat, data.lon);
-        debugLog('IP location loaded, GPS button available');
-      });
-    }).catch(e => {
-      debugLog('IP location failed');
-    });
-  }
+  // Start immediately for all devices
+  updateLocationAndWeather(false);
   </script>
   </body></html>
