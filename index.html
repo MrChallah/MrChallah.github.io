@@ -5,19 +5,44 @@
   #info{position:absolute;top:8px;left:8px;display:flex;flex-direction:column;gap:4px;}
   .row{display:flex;align-items:center;font-size:15px;font-weight:500;text-shadow:0 0 4px #000,0 0 8px #000;}
   .row i{width:18px;margin-right:6px;text-align:center;}
+  #gpsButton{
+    background:rgba(0,0,0,0.7);
+    border:1px solid rgba(255,255,255,0.3);
+    color:#fff;
+    padding:6px 12px;
+    border-radius:4px;
+    font-size:12px;
+    cursor:pointer;
+    margin-top:4px;
+    display:none;
+  }
+  #gpsButton:hover{background:rgba(255,255,255,0.1);}
+  .location-clickable{cursor:pointer;color:#4CAF50;}
+  .location-clickable:hover{text-decoration:underline;}
   </style></head><body>
   
   <div id="info">
     <div class="row"><i class="fa-regular fa-clock"></i><span id="time">--:--:--</span></div>
-    <div class="row"><i class="fa-solid fa-location-dot"></i><span id="place">Waiting…</span></div>
+    <div class="row">
+      <i class="fa-solid fa-location-dot"></i>
+      <span id="place" class="location-clickable">Waiting…</span>
+    </div>
     <div class="row"><i class="fa-solid fa-cloud"></i><span id="weather">--°C</span></div>
+    <button id="gpsButton"><i class="fa-solid fa-satellite-dish"></i> Get GPS</button>
   </div>
   
   <script>
   const placeEl = document.getElementById('place');
   const weatherEl = document.getElementById('weather');
+  const gpsButton = document.getElementById('gpsButton');
   const OWM_KEY = '618628ae452ff89f0e4477fba20b9d5c';
   const GOOGLE_GEO_KEY = 'AIzaSyBFwxZu_EqPgs7pEqk1uHn1f46F6vUoEFU';
+  
+  let lastKnownLocation = null;
+  let gpsAttempted = false;
+  
+  // Detect if we're on mobile
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   
   function tick(){
     const now = new Date();
@@ -63,33 +88,50 @@
   }
   
   // Method 2: Try browser GPS
-  function getBrowserGPS() {
+  function getBrowserGPS(userTriggered = false) {
     return new Promise((resolve, reject) => {
       if (!navigator.geolocation) {
         reject(new Error('Geolocation not supported'));
         return;
       }
+      
+      // Check if HTTPS is required (most mobile browsers require it)
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost' && !location.hostname.includes('127.0.0.1')) {
+        console.warn('HTTPS may be required for geolocation on mobile devices');
+      }
   
-      placeEl.textContent = "Getting GPS fix...";
+      placeEl.textContent = userTriggered ? "Getting GPS fix..." : "Getting GPS fix...";
+      gpsButton.style.display = 'none';
+      
+      const options = {
+        enableHighAccuracy: true,
+        timeout: isMobile ? 30000 : 15000, // Longer timeout for mobile
+        maximumAge: userTriggered ? 0 : 60000 // Fresh location if user triggered
+      };
       
       navigator.geolocation.getCurrentPosition(
         (position) => {
+          gpsButton.style.display = 'none';
           resolve({
             lat: position.coords.latitude,
             lon: position.coords.longitude,
             accuracy: Math.round(position.coords.accuracy),
-            source: `Browser GPS (±${Math.round(position.coords.accuracy)}m)`
+            source: `${userTriggered ? 'Manual ' : ''}GPS (±${Math.round(position.coords.accuracy)}m)`
           });
         },
         (error) => {
-          console.log('GPS Error:', error.message);
+          console.log('GPS Error:', error.message, 'Code:', error.code);
+          
+          // Show GPS button on mobile if GPS fails
+          if (isMobile && !userTriggered) {
+            gpsButton.style.display = 'block';
+            placeEl.textContent = "Tap location or GPS button";
+            placeEl.className = 'location-clickable';
+          }
+          
           reject(error);
         },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 30000
-        }
+        options
       );
     });
   }
@@ -109,7 +151,7 @@
     };
   }
   
-  async function updateLocationAndWeather(){
+  async function updateLocationAndWeather(userTriggered = false){
     try {
       let locationData = null;
       
@@ -117,28 +159,48 @@
       locationData = getIRLProLocation();
       if (locationData) {
         console.log('Using IRL Pro location');
+        gpsButton.style.display = 'none';
       }
       
       // Try Method 2: Browser GPS (if no IRL Pro data)
-      if (!locationData) {
+      if (!locationData && (!isMobile || userTriggered || !gpsAttempted)) {
         try {
-          locationData = await getBrowserGPS();
+          locationData = await getBrowserGPS(userTriggered);
           console.log('Using Browser GPS');
+          gpsAttempted = true;
         } catch (gpsError) {
           console.log('Browser GPS failed:', gpsError.message);
+          gpsAttempted = true;
+          
+          // On mobile, show the GPS button if GPS fails
+          if (isMobile && !userTriggered) {
+            gpsButton.style.display = 'block';
+          }
         }
       }
       
       // Try Method 3: IP location fallback
       if (!locationData) {
-        placeEl.textContent = "Using IP location...";
-        locationData = await getLocationFromGoogle();
-        console.log('Using IP location');
+        if (!userTriggered) { // Don't fallback to IP if user specifically requested GPS
+          placeEl.textContent = "Using IP location...";
+          locationData = await getLocationFromGoogle();
+          console.log('Using IP location');
+          
+          // Show GPS button on mobile to allow manual GPS attempt
+          if (isMobile) {
+            gpsButton.style.display = 'block';
+          }
+        } else {
+          placeEl.textContent = "GPS unavailable";
+          return;
+        }
       }
       
       // Update the display
       if (locationData) {
+        lastKnownLocation = locationData;
         placeEl.textContent = "Loading location...";
+        placeEl.className = '';
         const label = await reverseGeocode(locationData.lat, locationData.lon);
         placeEl.textContent = label;
         fetchWeather(locationData.lat, locationData.lon);
@@ -149,10 +211,37 @@
       placeEl.textContent = "Location N/A";
       weatherEl.textContent = "Weather N/A";
       console.error("Failed to get location or weather:", e);
+      
+      // Show GPS button as fallback
+      if (isMobile) {
+        gpsButton.style.display = 'block';
+      }
     }
   }
   
-  setInterval(updateLocationAndWeather, 90000);
-  updateLocationAndWeather();
+  // Event listeners for user-triggered GPS
+  gpsButton.addEventListener('click', () => {
+    updateLocationAndWeather(true);
+  });
+  
+  placeEl.addEventListener('click', () => {
+    if (placeEl.className.includes('location-clickable')) {
+      updateLocationAndWeather(true);
+    }
+  });
+  
+  // Request permission on page load for mobile
+  if (isMobile && 'permissions' in navigator) {
+    navigator.permissions.query({name: 'geolocation'}).then(function(result) {
+      console.log('Geolocation permission:', result.state);
+      if (result.state === 'denied') {
+        gpsButton.style.display = 'block';
+        placeEl.textContent = "Location permission denied";
+      }
+    });
+  }
+  
+  setInterval(() => updateLocationAndWeather(false), 90000);
+  updateLocationAndWeather(false);
   </script>
   </body></html>
