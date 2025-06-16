@@ -490,63 +490,43 @@
     try {
       let locationData = null;
       
-      if (showLoadingMessages) {
-        showDebugInfo("Checking location sources...");
-      }
-      
       // Try Method 1: IRL Pro location data
       locationData = getIRLProLocation();
-      if (locationData) {
-        if (showLoadingMessages) showDebugInfo("Found IRL Pro location");
-      }
       
       // Try Method 1.5: Try PRISM Live location data
       if (!locationData) {
         locationData = getPRISMLocation();
-        if (locationData) {
-          if (showLoadingMessages) showDebugInfo("Found PRISM Live location");
-        }
       }
       
       // Try Method 1.6: Actively request location from PRISM Live
       if (!locationData) {
-        if (showLoadingMessages) showDebugInfo("Requesting PRISM location...");
         try {
           locationData = await requestPRISMLocation();
-          if (locationData) {
-            if (showLoadingMessages) showDebugInfo("PRISM Live responded with location");
-          }
         } catch (prismError) {
           console.warn('PRISM Live location request failed:', prismError);
-          if (showLoadingMessages) showDebugInfo("PRISM Live request failed");
         }
       }
       
       // Try Method 2: Browser GPS (but skip in app environments where it often fails)
       if (!locationData && (!gpsAttempted || gpsSuccessful) && !isInApp) {
-        if (showLoadingMessages) showDebugInfo("Trying browser GPS...");
         try {
           locationData = await getBrowserGPS(showLoadingMessages);
           gpsAttempted = true;
         } catch (gpsError) {
           console.warn('GPS failed:', gpsError);
           gpsAttempted = true;
-          if (showLoadingMessages) showDebugInfo("Browser GPS failed");
         }
-      } else if (!locationData && isInApp) {
-        if (showLoadingMessages) showDebugInfo("Skipping GPS (in app environment)");
       }
       
       // Try Method 3: IP location fallback
       if (!locationData) {
         if (showLoadingMessages) {
-          showDebugInfo("Using IP location...");
+          placeEl.textContent = "Loading location...";
         }
         try {
           locationData = await getIPLocation();
         } catch (ipError) {
           console.error('All IP location services failed:', ipError);
-          if (showLoadingMessages) showDebugInfo("IP location failed");
         }
       }
       
@@ -618,25 +598,6 @@
       console.log('Location-related window properties:', locationRelatedProps);
     }
     console.log('=== END DEBUG ===');
-    
-    // Show debug info on page as well
-    const debugInfo = [
-      `App Environment: ${isInApp}`,
-      `Protocol: ${window.location.protocol}`,
-      `Hostname: '${window.location.hostname}'`,
-      `UA contains PRISM: ${navigator.userAgent.includes('PRISM')}`,
-      `UA contains NAVER: ${navigator.userAgent.includes('NAVER')}`,
-      `Chrome: ${!!window.chrome}`,
-      `GPS Available: ${!!navigator.geolocation}`
-    ];
-    
-    // Show debug info temporarily
-    setTimeout(() => {
-      showDebugInfo(`DEBUG: ${debugInfo.join(', ')}`);
-      setTimeout(() => {
-        showDebugInfo("Starting location detection...");
-      }, 5000); // Longer delay to read debug info
-    }, 1000);
   }
   
   // Run debug on load
@@ -644,15 +605,5 @@
   
   // Start immediately (with loading messages)
   updateLocationAndWeather(true);
-  
-  // Debug display function
-  function showDebugInfo(message, append = false) {
-    if (append) {
-      placeEl.textContent += ' | ' + message;
-    } else {
-      placeEl.textContent = message;
-    }
-    console.log('DEBUG:', message);
-  }
   </script>
   </body></html>
