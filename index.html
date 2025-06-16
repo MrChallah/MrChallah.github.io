@@ -38,9 +38,16 @@
                   /wv|WebView/i.test(navigator.userAgent) ||
                   navigator.userAgent.includes('PRISM') ||
                   navigator.userAgent.includes('Live') ||
+                  navigator.userAgent.includes('NAVER') ||
                   window.location.protocol === 'file:' ||
                   window.location.hostname === '' ||
-                  !window.location.hostname;
+                  !window.location.hostname ||
+                  window.location.href.includes('prism') ||
+                  window.location.href.includes('live') ||
+                  // More aggressive detection for streaming apps
+                  window.outerWidth === window.innerWidth ||
+                  window.chrome === undefined ||
+                  !window.chrome;
   
   function tick(){
     const now = new Date();
@@ -577,6 +584,11 @@
   function debugLocationInterfaces() {
     console.log('=== LOCATION INTERFACE DEBUG ===');
     console.log('User Agent:', navigator.userAgent);
+    console.log('Location href:', window.location.href);
+    console.log('Location protocol:', window.location.protocol);
+    console.log('Location hostname:', window.location.hostname);
+    console.log('Window chrome:', !!window.chrome);
+    console.log('Outer width:', window.outerWidth, 'Inner width:', window.innerWidth);
     console.log('IRL Pro locationData:', !!window.locationData);
     console.log('PRISM prismLocationData:', !!window.prismLocationData);
     console.log('PRISM window.prism:', !!window.prism);
@@ -605,12 +617,11 @@
     // Show debug info on page as well
     const debugInfo = [
       `App Environment: ${isInApp}`,
-      `IRL Pro: ${!!window.locationData}`,
-      `PRISM Data: ${!!window.prismLocationData}`,
-      `PRISM Object: ${!!window.prism}`,
-      `PRISM GPS: ${!!window.PRISM_GPS}`,
-      `WebKit: ${!!(window.webkit && window.webkit.messageHandlers)}`,
-      `Android: ${!!window.Android}`,
+      `Protocol: ${window.location.protocol}`,
+      `Hostname: '${window.location.hostname}'`,
+      `UA contains PRISM: ${navigator.userAgent.includes('PRISM')}`,
+      `UA contains NAVER: ${navigator.userAgent.includes('NAVER')}`,
+      `Chrome: ${!!window.chrome}`,
       `GPS Available: ${!!navigator.geolocation}`
     ];
     
@@ -619,7 +630,7 @@
       showDebugInfo(`DEBUG: ${debugInfo.join(', ')}`);
       setTimeout(() => {
         showDebugInfo("Starting location detection...");
-      }, 3000);
+      }, 5000); // Longer delay to read debug info
     }, 1000);
   }
   
