@@ -30,24 +30,22 @@
   const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
   const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   
-  // Detect if we're in an app environment (like PRISM Live)
-  const isInApp = !window.location.href.startsWith('http') || 
+  // Detect if we're specifically in PRISM Live or similar streaming app
+  const isPRISMLive = navigator.userAgent.includes('PRISM') ||
+                      navigator.userAgent.includes('NAVER') ||
+                      window.location.href.includes('prism') ||
+                      (window.location.href.includes('live') && 
+                       (navigator.userAgent.includes('PRISM') || navigator.userAgent.includes('NAVER'))) ||
+                      // Only detect streaming apps, not regular file usage
+                      (navigator.userAgent.includes('WebView') && 
+                       (window.chrome === undefined && 
+                        window.outerWidth === window.innerWidth));
+  
+  // Keep broader app detection for other functionality but be more specific
+  const isInApp = isPRISMLive ||
                   window.navigator.standalone === true ||
-                  window.matchMedia('(display-mode: standalone)').matches ||
                   document.referrer.includes('android-app://') ||
-                  /wv|WebView/i.test(navigator.userAgent) ||
-                  navigator.userAgent.includes('PRISM') ||
-                  navigator.userAgent.includes('Live') ||
-                  navigator.userAgent.includes('NAVER') ||
-                  window.location.protocol === 'file:' ||
-                  window.location.hostname === '' ||
-                  !window.location.hostname ||
-                  window.location.href.includes('prism') ||
-                  window.location.href.includes('live') ||
-                  // More aggressive detection for streaming apps
-                  window.outerWidth === window.innerWidth ||
-                  window.chrome === undefined ||
-                  !window.chrome;
+                  /wv|WebView/i.test(navigator.userAgent);
   
   function tick(){
     const now = new Date();
@@ -327,21 +325,32 @@
     });
   }
   
-  // Method 2: Try browser GPS
+  // Method 2: Try browser GPS (skip only in PRISM Live where it typically fails)
   function getBrowserGPS(showLoadingMessages = true) {
     return new Promise((resolve, reject) => {
+      console.log('getBrowserGPS called, isPRISMLive:', isPRISMLive, 'showLoadingMessages:', showLoadingMessages);
+      
+      // Skip GPS only in PRISM Live and similar streaming apps where it typically fails
+      if (isPRISMLive) {
+        console.log('GPS skipped - in PRISM Live environment');
+        reject(new Error('GPS skipped - in PRISM Live environment'));
+        return;
+      }
+      
       if (!navigator.geolocation) {
+        console.log('Geolocation not supported');
         reject(new Error('Geolocation not supported'));
         return;
       }
-
+  
       if (showLoadingMessages) {
+        console.log('Setting GPS loading message');
         placeEl.textContent = "Grabbing GPS Location...";
       }
       
       const options = {
         enableHighAccuracy: true,
-        timeout: isInApp ? 10000 : (isIOS ? 60000 : (isMobile ? 45000 : 15000)),
+        timeout: isIOS ? 60000 : (isMobile ? 45000 : 15000),
         maximumAge: gpsSuccessful ? 30000 : 0
       };
       
@@ -496,7 +505,7 @@
         }
       }
       
-      // Try Method 2: Browser GPS
+      // Try Method 2: Browser GPS (skip only in PRISM Live where it typically fails)
       if (!locationData && (!gpsAttempted || gpsSuccessful)) {
         try {
           locationData = await getBrowserGPS(showLoadingMessages);
