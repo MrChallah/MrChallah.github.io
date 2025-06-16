@@ -330,18 +330,23 @@
   // Method 2: Try browser GPS
   function getBrowserGPS(showLoadingMessages = true) {
     return new Promise((resolve, reject) => {
+      console.log('getBrowserGPS called, isInApp:', isInApp, 'showLoadingMessages:', showLoadingMessages);
+      
       // Skip GPS entirely in app environments
       if (isInApp) {
+        console.log('GPS skipped - in app environment');
         reject(new Error('GPS skipped - in app environment'));
         return;
       }
       
       if (!navigator.geolocation) {
+        console.log('Geolocation not supported');
         reject(new Error('Geolocation not supported'));
         return;
       }
   
       if (showLoadingMessages) {
+        console.log('Setting GPS loading message');
         placeEl.textContent = "Grabbing GPS Location...";
       }
       
