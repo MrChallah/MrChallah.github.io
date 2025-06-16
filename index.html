@@ -40,8 +40,7 @@
                   navigator.userAgent.includes('Live') ||
                   window.location.protocol === 'file:' ||
                   window.location.hostname === '' ||
-                  !window.location.hostname ||
-                  true; // Force skip GPS for now to test
+                  !window.location.hostname;
   
   function tick(){
     const now = new Date();
@@ -324,6 +323,12 @@
   // Method 2: Try browser GPS
   function getBrowserGPS(showLoadingMessages = true) {
     return new Promise((resolve, reject) => {
+      // Skip GPS entirely in app environments
+      if (isInApp) {
+        reject(new Error('GPS skipped - in app environment'));
+        return;
+      }
+      
       if (!navigator.geolocation) {
         reject(new Error('Geolocation not supported'));
         return;
