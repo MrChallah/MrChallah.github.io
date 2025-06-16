@@ -35,7 +35,13 @@
                   window.navigator.standalone === true ||
                   window.matchMedia('(display-mode: standalone)').matches ||
                   document.referrer.includes('android-app://') ||
-                  /wv|WebView/i.test(navigator.userAgent);
+                  /wv|WebView/i.test(navigator.userAgent) ||
+                  navigator.userAgent.includes('PRISM') ||
+                  navigator.userAgent.includes('Live') ||
+                  window.location.protocol === 'file:' ||
+                  window.location.hostname === '' ||
+                  !window.location.hostname ||
+                  true; // Force skip GPS for now to test
   
   function tick(){
     const now = new Date();
