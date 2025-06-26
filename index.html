@@ -408,7 +408,7 @@
     
     // v4 repository weather icon mapping (now primary for everyone)
     const v4IconMap = {
-      'CLEAR': isDay ? 'sunny.svg' : 'clear_night.svg',
+      'CLEAR': isDay ? 'sunny_day.svg' : 'clear_night.svg',
       'MOSTLY_CLEAR': isDay ? 'mostly_clear_day.svg' : 'mostly_clear_night.svg',
       'PARTLY_CLOUDY': isDay ? 'partly_cloudy_day.svg' : 'partly_cloudy_night.svg',
       'MOSTLY_CLOUDY': isDay ? 'mostly_cloudy_day.svg' : 'mostly_cloudy_night.svg',
@@ -950,62 +950,57 @@
     throw new Error('All IP location services failed');
   }
   
-  // Lightweight check for location changes
-  function hasLocationChanged(newLocation, oldLocation) {
-    if (!oldLocation || !newLocation) return true;
-    
-    // Use different thresholds based on location source
-    const isGPS = newLocation.source && (newLocation.source.includes('GPS') || newLocation.source.includes('IRL Pro'));
-    const threshold = isGPS ? 0.001 : 0.01; // ~100m for GPS, ~1km for IP location
-    
-    // Consider location changed if moved more than the threshold
-    const latDiff = Math.abs(newLocation.lat - oldLocation.lat);
-    const lonDiff = Math.abs(newLocation.lon - oldLocation.lon);
-    
-    const changed = latDiff > threshold || lonDiff > threshold;
-    if (changed) {
-      console.log(`Location change detected (${isGPS ? 'GPS' : 'IP'} threshold: ${threshold}):`, 
-        { latDiff: latDiff.toFixed(6), lonDiff: lonDiff.toFixed(6) });
-    }
-    
-    return changed;
-  }
-  
   async function updateLocationAndWeather(showLoadingMessages = true){
     try {
       let locationData = null;
       
-      // Get current location (lightweight)
-      let currentLocation = getIRLProLocation();
-      if (!currentLocation && gpsSuccessful && !isRetrying) {
+      // Try Method 1: IRL Pro location data
+      locationData = getIRLProLocation();
+      
+      // Try Method 2: Browser GPS
+      if (!locationData && (!gpsAttempted || gpsSuccessful)) {
         try {
-          currentLocation = await getBrowserGPS(false);
-        } catch (e) {
-          currentLocation = lastKnownLocation; // Use cached
+          locationData = await getBrowserGPS(showLoadingMessages);
+          gpsAttempted = true;
+        } catch (gpsError) {
+          console.warn('GPS failed:', gpsError);
+          gpsAttempted = true;
         }
       }
-      if (!currentLocation) {
-        // Try fresh IP location when GPS isn't available
+      
+      // Try Method 3: IP location fallback
+      if (!locationData) {
+        if (showLoadingMessages) {
+          placeEl.textContent = "Using IP location...";
+        }
         try {
-          console.log('GPS not available, checking IP location...');
-          currentLocation = await getIPLocation();
-        } catch (e) {
-          console.log('IP location failed, using cached location');
-          currentLocation = lastLocationData; // Use last known as final fallback
+          locationData = await getIPLocation();
+        } catch (ipError) {
+          console.error('All IP location services failed:', ipError);
+        }
+      }
+      
+      // Use last known GPS location only if it's very recent (within 5 minutes) and GPS just failed
+      if (!locationData && gpsSuccessful && lastKnownLocation && lastKnownLocation.source.includes('GPS') && consecutiveGPSFailures === 1) {
+        const now = Date.now();
+        const locationAge = now - (lastKnownLocation.timestamp || 0);
+        if (locationAge < 300000) { // 5 minutes
+          locationData = lastKnownLocation;
+          console.log('Using cached GPS location');
         }
       }
       
       // Update the display
-      if (currentLocation) {
-        lastKnownLocation = currentLocation;
+      if (locationData) {
+        lastKnownLocation = locationData;
         lastKnownLocation.timestamp = Date.now();
         if (showLoadingMessages) {
           placeEl.textContent = "Loading location...";
         }
-        const label = await reverseGeocode(currentLocation.lat, currentLocation.lon);
+        const label = await reverseGeocode(locationData.lat, locationData.lon);
         placeEl.textContent = label;
-        fetchWeather(currentLocation.lat, currentLocation.lon);
-        console.log('Location updated:', currentLocation.source, label);
+        fetchWeather(locationData.lat, locationData.lon);
+        console.log('Location updated:', locationData.source, label);
       } else {
         throw new Error('No location data available from any source');
       }
