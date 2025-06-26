@@ -950,57 +950,62 @@
     throw new Error('All IP location services failed');
   }
   
+  // Lightweight check for location changes
+  function hasLocationChanged(newLocation, oldLocation) {
+    if (!oldLocation || !newLocation) return true;
+    
+    // Use different thresholds based on location source
+    const isGPS = newLocation.source && (newLocation.source.includes('GPS') || newLocation.source.includes('IRL Pro'));
+    const threshold = isGPS ? 0.001 : 0.01; // ~100m for GPS, ~1km for IP location
+    
+    // Consider location changed if moved more than the threshold
+    const latDiff = Math.abs(newLocation.lat - oldLocation.lat);
+    const lonDiff = Math.abs(newLocation.lon - oldLocation.lon);
+    
+    const changed = latDiff > threshold || lonDiff > threshold;
+    if (changed) {
+      console.log(`Location change detected (${isGPS ? 'GPS' : 'IP'} threshold: ${threshold}):`, 
+        { latDiff: latDiff.toFixed(6), lonDiff: lonDiff.toFixed(6) });
+    }
+    
+    return changed;
+  }
+  
   async function updateLocationAndWeather(showLoadingMessages = true){
     try {
       let locationData = null;
       
-      // Try Method 1: IRL Pro location data
-      locationData = getIRLProLocation();
-      
-      // Try Method 2: Browser GPS
-      if (!locationData && (!gpsAttempted || gpsSuccessful)) {
+      // Get current location (lightweight)
+      let currentLocation = getIRLProLocation();
+      if (!currentLocation && gpsSuccessful && !isRetrying) {
         try {
-          locationData = await getBrowserGPS(showLoadingMessages);
-          gpsAttempted = true;
-        } catch (gpsError) {
-          console.warn('GPS failed:', gpsError);
-          gpsAttempted = true;
+          currentLocation = await getBrowserGPS(false);
+        } catch (e) {
+          currentLocation = lastKnownLocation; // Use cached
         }
       }
-      
-      // Try Method 3: IP location fallback
-      if (!locationData) {
-        if (showLoadingMessages) {
-          placeEl.textContent = "Using IP location...";
-        }
+      if (!currentLocation) {
+        // Try fresh IP location when GPS isn't available
         try {
-          locationData = await getIPLocation();
-        } catch (ipError) {
-          console.error('All IP location services failed:', ipError);
-        }
-      }
-      
-      // Use last known GPS location only if it's very recent (within 5 minutes) and GPS just failed
-      if (!locationData && gpsSuccessful && lastKnownLocation && lastKnownLocation.source.includes('GPS') && consecutiveGPSFailures === 1) {
-        const now = Date.now();
-        const locationAge = now - (lastKnownLocation.timestamp || 0);
-        if (locationAge < 300000) { // 5 minutes
-          locationData = lastKnownLocation;
-          console.log('Using cached GPS location');
+          console.log('GPS not available, checking IP location...');
+          currentLocation = await getIPLocation();
+        } catch (e) {
+          console.log('IP location failed, using cached location');
+          currentLocation = lastLocationData; // Use last known as final fallback
         }
       }
       
       // Update the display
-      if (locationData) {
-        lastKnownLocation = locationData;
+      if (currentLocation) {
+        lastKnownLocation = currentLocation;
         lastKnownLocation.timestamp = Date.now();
         if (showLoadingMessages) {
           placeEl.textContent = "Loading location...";
         }
-        const label = await reverseGeocode(locationData.lat, locationData.lon);
+        const label = await reverseGeocode(currentLocation.lat, currentLocation.lon);
         placeEl.textContent = label;
-        fetchWeather(locationData.lat, locationData.lon);
-        console.log('Location updated:', locationData.source, label);
+        fetchWeather(currentLocation.lat, currentLocation.lon);
+        console.log('Location updated:', currentLocation.source, label);
       } else {
         throw new Error('No location data available from any source');
       }
