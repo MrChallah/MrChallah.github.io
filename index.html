@@ -66,7 +66,7 @@
   }
   
   .location-row {
-    margin-top: -2.4px;
+    margin-top: -2.3px;
   }
   
   .weather-row {
@@ -78,10 +78,10 @@
     <div class="d-flex align-items-center fs-5 fw-bold text-shadow text-nowrap"><i class="fa-regular fa-clock info-icon icon-text-shadow me-2"></i><span id="time">--:--:--</span></div>
     <div class="d-flex align-items-center fs-5 fw-bold text-shadow text-nowrap location-row">
       <span class="info-icon me-2">
-        <img id="country-flag" class="country-flag" style="width: 20px; height: 15px; margin-top:-0.1px; border-radius: 2px; filter: drop-shadow(-1px -1px 0 #000) drop-shadow(1px -1px 0 #000) drop-shadow(-1px 1px 0 #000) drop-shadow(1px 1px 0 #000) drop-shadow(0 0 4px #000);" alt="Location" />
+        <img id="country-flag" class="country-flag" style="width: 20px; height: 15px; border-radius: 2px; transform: translateY(-2px); filter: drop-shadow(-1px -1px 0 #000) drop-shadow(1px -1px 0 #000) drop-shadow(-1px 1px 0 #000) drop-shadow(1px 1px 0 #000) drop-shadow(0 0 4px #000);" alt="Location" />
         <i id="location-fallback" class="fa-solid fa-location-dot info-icon icon-text-shadow" style="display: none;"></i>
       </span>
-      <span id="place">Waiting for GPS…</span>
+      <span id="place">Waiting…</span>
     </div>
     <div class="d-flex align-items-center fs-5 fw-bold text-shadow text-nowrap weather-row">
       <span class="info-icon me-2">
@@ -100,7 +100,7 @@
   const weatherEl = document.getElementById('weather');
   const GOOGLE_GEO_KEY = 'YOUR_KEY';
   
-  let lastKnownGPSLocation = null;
+  let lastKnownLocation = null;
   let gpsSuccessful = false;
   let gpsAttempted = false;
   let consecutiveGPSFailures = 0;
@@ -133,70 +133,13 @@
   // Ensure time updates every second regardless of network issues
   setInterval(tick, 1000);
   
-  // Enhanced fetch with retry logic
-  async function fetchWithRetry(url, options = {}, retryCount = 0) {
-    let timeoutId; // Move declaration to function scope
-    try {
-      // Create fresh AbortController for each attempt
-      const controller = new AbortController();
-      timeoutId = setTimeout(() => {
-        controller.abort();
-      }, 5000); // Reduced to 5 seconds for better responsiveness
-      
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal
-      });
-      
-      clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      
-      // Reset retry attempts on success
-      retryAttempts = 0;
-      hasConnectionIssues = false;
-      
-      return response;
-    } catch (error) {
-      clearTimeout(timeoutId); // Ensure timeout is cleared on error too
-      console.warn(`Fetch attempt ${retryCount + 1} failed:`, error.message);
-      
-      // Better error categorization
-      const isTimeoutError = error.name === 'AbortError';
-      const isNetworkError = error.name === 'TypeError' || error.message.includes('Failed to fetch') || error.message.includes('ERR_CONNECTION');
-      const isOffline = !navigator.onLine;
-      
-      if (retryCount < maxRetryAttempts && (isTimeoutError || isNetworkError || isOffline)) {
-        hasConnectionIssues = true;
-        const delay = Math.min(1000 * Math.pow(2, retryCount), 8000); // Exponential backoff, max 8 seconds
-        console.log(`Retrying in ${delay}ms...`);
-        
-        return new Promise(resolve => {
-          const timeoutId = setTimeout(async () => {
-            try {
-              const result = await fetchWithRetry(url, options, retryCount + 1);
-              resolve(result);
-            } catch (err) {
-              resolve(Promise.reject(err));
-            }
-          }, delay);
-          retryTimeouts.push(timeoutId);
-        });
-      }
-      
-      throw error;
-    }
-  }
-  
   async function reverseGeocode(lat, lon){
     // Detect if we're running locally (file:// protocol) and prioritize Nominatim
     const isLocalFile = window.location.protocol === 'file:';
     
     if (isLocalFile) {
       console.log('Local file detected, using Nominatim as primary geocoder');
-        return await reverseGeocodeWithNominatim(lat, lon);
+      return await reverseGeocodeWithNominatim(lat, lon);
     }
     
     // Try Google first for hosted environments
@@ -210,33 +153,33 @@
   
   async function reverseGeocodeWithGoogle(lat, lon) {
     const res = await fetchWithRetry(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&key=${GOOGLE_GEO_KEY}&language=en&result_type=locality|administrative_area_level_2|administrative_area_level_1|country`);
-      const data = await res.json();
+    const data = await res.json();
+    
+    if (data.status === 'OK' && data.results.length > 0) {
+      // Collect all components from all results to make a consistent decision
+      let allCities = [];
+      let allStates = [];
+      let country = '';
+      let isJapan = false;
       
-      if (data.status === 'OK' && data.results.length > 0) {
-        // Collect all components from all results to make a consistent decision
-        let allCities = [];
-        let allStates = [];
-        let country = '';
-        let isJapan = false;
+      // Process all results to gather comprehensive location data
+      for (let resultIndex = 0; resultIndex < Math.min(data.results.length, 3); resultIndex++) {
+        const result = data.results[resultIndex];
+        const components = result.address_components;
         
-        // Process all results to gather comprehensive location data
-        for (let resultIndex = 0; resultIndex < Math.min(data.results.length, 3); resultIndex++) {
-          const result = data.results[resultIndex];
-          const components = result.address_components;
+        components.forEach(component => {
+          const types = component.types;
+          const name = component.long_name;
           
-          components.forEach(component => {
-            const types = component.types;
-            const name = component.long_name;
-            
-            // Check if location is in Japan
-            if (types.includes('country') && (component.short_name === 'JP' || name === 'Japan')) {
-              isJapan = true;
-            }
-            
+          // Check if location is in Japan
+          if (types.includes('country') && (component.short_name === 'JP' || name === 'Japan')) {
+            isJapan = true;
+          }
+          
             // Collect potential city names with improved priority for specific locations
-            if (types.includes('locality')) {
+          if (types.includes('locality')) {
               // Highest priority: actual localities (specific places like Punta Cana)
-              allCities.push({ name, priority: 1, type: 'locality', source: `result_${resultIndex}` });
+            allCities.push({ name, priority: 1, type: 'locality', source: `result_${resultIndex}` });
             } else if (types.includes('sublocality_level_1') || types.includes('sublocality')) {
               // Second priority: specific sub-areas within cities
               allCities.push({ name, priority: 2, type: 'sublocality', source: `result_${resultIndex}` });
@@ -246,111 +189,111 @@
             } else if (types.includes('administrative_area_level_3')) {
               // Fourth priority: more specific administrative areas
               allCities.push({ name, priority: 4, type: 'admin_level_3', source: `result_${resultIndex}` });
-            }
-            
-            // Collect state/region names
-            if (types.includes('administrative_area_level_1')) {
-              allStates.push({ name, source: `result_${resultIndex}` });
-            }
-            
-            // Set country (take first one found)
-            if (types.includes('country') && !country) {
-              country = name;
-            }
-          });
-        }
-        
-        console.log('All collected cities:', allCities);
-        console.log('All collected states:', allStates);
-        
-        // Store Japan status globally for weather icon selection
-        window.isLocationInJapan = isJapan;
-        
-        // Deduplicate cities while preserving the most specific ones
-        const uniqueCities = [];
-        allCities.forEach(cityObj => {
-          const isDuplicate = uniqueCities.some(existing => 
-            existing.name.toLowerCase() === cityObj.name.toLowerCase()
-          );
-          if (!isDuplicate) {
-            uniqueCities.push(cityObj);
+          }
+          
+          // Collect state/region names
+          if (types.includes('administrative_area_level_1')) {
+            allStates.push({ name, source: `result_${resultIndex}` });
+          }
+          
+          // Set country (take first one found)
+          if (types.includes('country') && !country) {
+            country = name;
           }
         });
-        
+      }
+      
+      console.log('All collected cities:', allCities);
+      console.log('All collected states:', allStates);
+      
+      // Store Japan status globally for weather icon selection
+      window.isLocationInJapan = isJapan;
+      
+        // Deduplicate cities while preserving the most specific ones
+      const uniqueCities = [];
+      allCities.forEach(cityObj => {
+        const isDuplicate = uniqueCities.some(existing => 
+          existing.name.toLowerCase() === cityObj.name.toLowerCase()
+        );
+        if (!isDuplicate) {
+          uniqueCities.push(cityObj);
+        }
+      });
+      
         // Filter out overly generic or administrative names that aren't specific locations
-        const filteredCities = uniqueCities.filter(cityObj => {
-          const name = cityObj.name;
+      const filteredCities = uniqueCities.filter(cityObj => {
+        const name = cityObj.name;
           const isGenericAdmin = name.includes('County') || name.includes('District') || 
                                 name.includes('Region') || name.includes('Prefecture') ||
                                 name.includes('Municipality') || name.includes('Province') ||
                                 name.includes('-dong') || name.includes('dong,') || 
-                                   name.includes('(') || name.includes(')') ||
+                                 name.includes('(') || name.includes(')') ||
                                 name.includes('Ward');
           return !isGenericAdmin;
-        });
-        
+      });
+      
         // Sort by priority (lower number = higher priority) to get the most specific location
-        const citiesToConsider = filteredCities.length > 0 ? filteredCities : uniqueCities;
-        citiesToConsider.sort((a, b) => a.priority - b.priority);
-        
-        // Get the best state (most common one)
-        const stateNames = allStates.map(s => s.name);
-        const mostCommonState = stateNames.length > 0 ? stateNames[0] : '';
-        
-        // Select final city and state with consistent redundancy rules
-        let finalCity = '';
-        let finalState = '';
-        
-        if (citiesToConsider.length > 0) {
-          const bestCityObj = citiesToConsider[0];
-          finalCity = bestCityObj.name;
+      const citiesToConsider = filteredCities.length > 0 ? filteredCities : uniqueCities;
+      citiesToConsider.sort((a, b) => a.priority - b.priority);
+      
+      // Get the best state (most common one)
+      const stateNames = allStates.map(s => s.name);
+      const mostCommonState = stateNames.length > 0 ? stateNames[0] : '';
+      
+      // Select final city and state with consistent redundancy rules
+      let finalCity = '';
+      let finalState = '';
+      
+      if (citiesToConsider.length > 0) {
+        const bestCityObj = citiesToConsider[0];
+        finalCity = bestCityObj.name;
           
           console.log('Selected most specific city:', finalCity, 'from type:', bestCityObj.type, 'priority:', bestCityObj.priority);
-          
-          // Apply consistent state inclusion rules
-          if (mostCommonState) {
-            // Always exclude state if it's exactly the same as city (case insensitive)
-            if (finalCity.toLowerCase() === mostCommonState.toLowerCase()) {
-              finalState = '';
-              console.log('Excluding state because it matches city exactly:', finalCity, '==', mostCommonState);
-            }
-            // For Israel specifically, always exclude "Central District", "Northern District", etc. 
-            // when we have a proper city name, as these are administrative regions
-            else if (country === 'Israel' && mostCommonState.toLowerCase().includes('district')) {
-              finalState = '';
-              console.log('Excluding Israeli district for consistency:', mostCommonState);
-            }
-            // For other locations, include state if it adds meaningful information
-            else {
-              // Check if state is a generic administrative name that doesn't add value
-              const genericStateTerms = ['region', 'province', 'territory', 'district', 'area'];
-              const isGenericState = genericStateTerms.some(term => 
-                mostCommonState.toLowerCase().includes(term)
-              );
-              
+        
+        // Apply consistent state inclusion rules
+        if (mostCommonState) {
+          // Always exclude state if it's exactly the same as city (case insensitive)
+          if (finalCity.toLowerCase() === mostCommonState.toLowerCase()) {
+            finalState = '';
+            console.log('Excluding state because it matches city exactly:', finalCity, '==', mostCommonState);
+          }
+          // For Israel specifically, always exclude "Central District", "Northern District", etc. 
+          // when we have a proper city name, as these are administrative regions
+          else if (country === 'Israel' && mostCommonState.toLowerCase().includes('district')) {
+            finalState = '';
+            console.log('Excluding Israeli district for consistency:', mostCommonState);
+          }
+          // For other locations, include state if it adds meaningful information
+          else {
+            // Check if state is a generic administrative name that doesn't add value
+            const genericStateTerms = ['region', 'province', 'territory', 'district', 'area'];
+            const isGenericState = genericStateTerms.some(term => 
+              mostCommonState.toLowerCase().includes(term)
+            );
+            
               // Include state if it's not generic and provides useful geographic context
               if (!isGenericState) {
-                finalState = mostCommonState;
+              finalState = mostCommonState;
                 console.log('Including state for geographic context:', mostCommonState);
-              } else {
-                finalState = '';
+            } else {
+              finalState = '';
                 console.log('Excluding generic state for specificity:', mostCommonState);
-              }
             }
           }
         }
-        
-        // If still no city, try administrative areas as backup
-        if (!finalCity && mostCommonState) {
-          finalCity = mostCommonState;
-          finalState = '';
-          console.log('Using state as city (backup):', finalCity);
-        }
-        
-        // Filter out Israeli districts before assembling final location
-        if (country === 'Israel' && finalState && finalState.toLowerCase().includes('district')) {
-          finalState = '';
-        }
+      }
+      
+      // If still no city, try administrative areas as backup
+      if (!finalCity && mostCommonState) {
+        finalCity = mostCommonState;
+        finalState = '';
+        console.log('Using state as city (backup):', finalCity);
+      }
+      
+      // Filter out Israeli districts before assembling final location
+      if (country === 'Israel' && finalState && finalState.toLowerCase().includes('district')) {
+        finalState = '';
+      }
         
         // Additional redundancy check for city-states (Singapore, Monaco, Vatican, etc.)
         if (finalCity && country) {
@@ -383,74 +326,74 @@
             }
           }
         }
-        
-        // Build final address string
-        const parts = [finalCity, finalState, country].filter(Boolean);
-        
+      
+      // Build final address string
+      const parts = [finalCity, finalState, country].filter(Boolean);
+      
         console.log('Google final location parts (most specific):', parts);
-        
-        // Extract country code for flag display
-        let countryCode = null;
-        if (data.results && data.results.length > 0) {
-          for (const result of data.results) {
-            const countryComponent = result.address_components.find(comp => 
-              comp.types.includes('country')
-            );
-            if (countryComponent) {
-              countryCode = countryComponent.short_name;
-              break;
-            }
+      
+      // Extract country code for flag display
+      let countryCode = null;
+      if (data.results && data.results.length > 0) {
+        for (const result of data.results) {
+          const countryComponent = result.address_components.find(comp => 
+            comp.types.includes('country')
+          );
+          if (countryComponent) {
+            countryCode = countryComponent.short_name;
+            break;
           }
         }
-        
-        // Store country info for flag display
-        window.currentCountryName = country;
-        window.currentCountryCode = countryCode;
-        
-        return parts.join(", ");
       }
+      
+      // Store country info for flag display
+      window.currentCountryName = country;
+      window.currentCountryCode = countryCode;
+      
+      return parts.join(", ");
+    }
       
       // Check for API quota/permission issues
       if (data.status === 'REQUEST_DENIED' || data.status === 'OVER_QUERY_LIMIT') {
         console.warn('Google Geocoding API access issue:', data.status, data.error_message);
         throw new Error(`Google API ${data.status}: ${data.error_message || 'Access denied or quota exceeded'}`);
       }
+    
+    // Safer fallback - extract only city, state, country from formatted address
+    if (data.results && data.results.length > 0) {
+      const formattedAddr = data.results[0].formatted_address;
+      const addressParts = formattedAddr.split(', ');
       
-      // Safer fallback - extract only city, state, country from formatted address
-      if (data.results && data.results.length > 0) {
-        const formattedAddr = data.results[0].formatted_address;
-        const addressParts = formattedAddr.split(', ');
-        
-        // Try to extract only the broader location components (last 2-3 parts typically)
-        // Skip detailed addresses like street numbers, building names, etc.
-        const broadParts = addressParts.slice(-3).filter(part => {
-          // Filter out postal codes, detailed street addresses
-          return !part.match(/^\d+/) && // No leading numbers
-                 !part.includes('#') && // No building numbers
-                 !part.includes('Suite') && // No suite numbers
-                 !part.includes('Floor') && // No floor numbers
-                 part.length > 2; // Reasonable length
+      // Try to extract only the broader location components (last 2-3 parts typically)
+      // Skip detailed addresses like street numbers, building names, etc.
+      const broadParts = addressParts.slice(-3).filter(part => {
+        // Filter out postal codes, detailed street addresses
+        return !part.match(/^\d+/) && // No leading numbers
+               !part.includes('#') && // No building numbers
+               !part.includes('Suite') && // No suite numbers
+               !part.includes('Floor') && // No floor numbers
+               part.length > 2; // Reasonable length
+      });
+      
+      // Additional redundancy check for formatted address parts
+      const filteredParts = [];
+      broadParts.forEach((part, index) => {
+        const isRedundant = filteredParts.some(existingPart => {
+          const p1 = part.toLowerCase();
+          const p2 = existingPart.toLowerCase();
+          return p1.includes(p2) || p2.includes(p1) || 
+                 p1.replace(/\s+(region|province|state|prefecture|district)$/, '') === p2 ||
+                 p2.replace(/\s+(region|province|state|prefecture|district)$/, '') === p1;
         });
         
-        // Additional redundancy check for formatted address parts
-        const filteredParts = [];
-        broadParts.forEach((part, index) => {
-          const isRedundant = filteredParts.some(existingPart => {
-            const p1 = part.toLowerCase();
-            const p2 = existingPart.toLowerCase();
-            return p1.includes(p2) || p2.includes(p1) || 
-                   p1.replace(/\s+(region|province|state|prefecture|district)$/, '') === p2 ||
-                   p2.replace(/\s+(region|province|state|prefecture|district)$/, '') === p1;
-          });
-          
-          // Filter out Israeli districts specifically
-          const isIsraeliDistrict = part.toLowerCase().includes('district') && 
-                                  broadParts.some(p => p.toLowerCase() === 'israel');
-          
-          if (!isRedundant && !isIsraeliDistrict) {
-            filteredParts.push(part);
-          }
-        });
+        // Filter out Israeli districts specifically
+        const isIsraeliDistrict = part.toLowerCase().includes('district') && 
+                                broadParts.some(p => p.toLowerCase() === 'israel');
+        
+        if (!isRedundant && !isIsraeliDistrict) {
+          filteredParts.push(part);
+        }
+      });
         
         // Additional check for city-states in formatted address fallback
         if (filteredParts.length > 1) {
@@ -463,191 +406,192 @@
             filteredParts.pop(); // Remove the duplicate
           }
         }
-        
-        return filteredParts.join(", ");
-      }
       
+      return filteredParts.join(", ");
+    }
+    
       throw new Error('No results from Google Geocoding');
   }
   
   async function reverseGeocodeWithNominatim(lat, lon) {
+    // Fallback to Nominatim with additional language parameters
     const res = await fetchWithRetry(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en&addressdetails=1&extratags=1`);
-      const geo = await res.json();
-      const addr = geo.address;
+    const geo = await res.json();
+    const addr = geo.address;
+    
+    console.log('Nominatim address components:', addr);
+    
+    // Check if Japan in Nominatim response
+    window.isLocationInJapan = addr.country_code === 'jp' || addr.country === 'Japan' || addr.country === '日本';
+    
+    // Enhanced Nominatim city name selection prioritizing specific locations
+    let city = '';
+    let state = '';
+    let country = addr.country || '';
+    
+    // Collect all potential city names from Nominatim with updated priorities for specificity
+    let potentialCities = [];
+    
+    // Priority 1: Most specific location designations (actual places)
+    if (addr.city && !addr.city.includes('Capital') && !addr.city.includes('City of')) {
+      potentialCities.push({ name: addr.city, priority: 1, type: 'city' });
+    }
+    if (addr.town && !addr.town.includes('Capital') && !addr.town.includes('City of')) {
+      potentialCities.push({ name: addr.town, priority: 1, type: 'town' });
+    }
+    if (addr.village && !addr.village.includes('Capital') && !addr.village.includes('City of')) {
+      potentialCities.push({ name: addr.village, priority: 1, type: 'village' });
+    }
+    
+    // Priority 2: Specific settlements and localities (like resort areas, specific neighborhoods)
+    if (addr.hamlet) {
+      potentialCities.push({ name: addr.hamlet, priority: 2, type: 'hamlet' });
+    }
+    if (addr.locality && addr.locality !== addr.city && addr.locality !== addr.town) {
+      potentialCities.push({ name: addr.locality, priority: 2, type: 'locality' });
+    }
+    if (addr.quarter && addr.quarter !== addr.city && addr.quarter !== addr.town) {
+      potentialCities.push({ name: addr.quarter, priority: 2, type: 'quarter' });
+    }
+    if (addr.residential && addr.residential !== addr.city && addr.residential !== addr.town) {
+      potentialCities.push({ name: addr.residential, priority: 2, type: 'residential' });
+    }
+    
+    // Priority 3: Municipality names (often the actual city name)
+    if (addr.municipality && addr.municipality !== addr.city && addr.municipality !== addr.town) {
+      potentialCities.push({ name: addr.municipality, priority: 3, type: 'municipality' });
+    }
+    
+    // Priority 4: Suburban/district areas (more specific than administrative regions)
+    if (addr.suburb && addr.suburb !== addr.city && addr.suburb !== addr.town) {
+      potentialCities.push({ name: addr.suburb, priority: 4, type: 'suburb' });
+    }
+    if (addr.neighbourhood && addr.neighbourhood !== addr.city && addr.neighbourhood !== addr.town) {
+      potentialCities.push({ name: addr.neighbourhood, priority: 4, type: 'neighbourhood' });
+    }
+    
+    // Priority 5: County as city name (only if it's not just "County")
+    if (addr.county && addr.county !== addr.city && addr.county !== addr.town && !addr.county.includes('County')) {
+      potentialCities.push({ name: addr.county, priority: 5, type: 'county' });
+    }
+    
+    // Priority 6: State/region as last resort (least specific)
+    if (addr.state && addr.state !== addr.city && addr.state !== addr.town) {
+      potentialCities.push({ name: addr.state, priority: 6, type: 'state_as_city' });
+    }
+    
+    console.log('Nominatim potential cities:', potentialCities);
+    
+    // Filter out overly detailed districts and administrative names
+    const filteredCities = potentialCities.filter(cityObj => {
+      const name = cityObj.name;
+      const isDetailedDistrict = name.includes('-dong') || name.includes('dong,') || 
+                               name.includes('(') || name.includes(')') ||
+                               name.includes('Ward') || name.includes('District') ||
+                               name.includes('Capital') || name.includes('City of') ||
+                               name.includes('County') || name.includes('Region');
+      return !isDetailedDistrict;
+    });
+    
+    // Choose the most specific city name (lowest priority number = most specific)
+    if (filteredCities.length > 0) {
+      // Sort by priority (lower number = higher priority = more specific)
+      filteredCities.sort((a, b) => a.priority - b.priority);
+      const bestCity = filteredCities[0];
+      city = bestCity.name;
+      console.log('Selected most specific Nominatim city:', city, 'from type:', bestCity.type, 'priority:', bestCity.priority);
       
-      console.log('Nominatim address components:', addr);
-      
-      // Check if Japan in Nominatim response
-      window.isLocationInJapan = addr.country_code === 'jp' || addr.country === 'Japan' || addr.country === '日本';
-      
-      // Enhanced Nominatim city name selection prioritizing specific locations
-      let city = '';
-      let state = '';
-      let country = addr.country || '';
-      
-      // Collect all potential city names from Nominatim with updated priorities for specificity
-      let potentialCities = [];
-      
-      // Priority 1: Most specific location designations (actual places)
-      if (addr.city && !addr.city.includes('Capital') && !addr.city.includes('City of')) {
-        potentialCities.push({ name: addr.city, priority: 1, type: 'city' });
-      }
-      if (addr.town && !addr.town.includes('Capital') && !addr.town.includes('City of')) {
-        potentialCities.push({ name: addr.town, priority: 1, type: 'town' });
-      }
-      if (addr.village && !addr.village.includes('Capital') && !addr.village.includes('City of')) {
-        potentialCities.push({ name: addr.village, priority: 1, type: 'village' });
-      }
-      
-      // Priority 2: Specific settlements and localities (like resort areas, specific neighborhoods)
-      if (addr.hamlet) {
-        potentialCities.push({ name: addr.hamlet, priority: 2, type: 'hamlet' });
-      }
-      if (addr.locality && addr.locality !== addr.city && addr.locality !== addr.town) {
-        potentialCities.push({ name: addr.locality, priority: 2, type: 'locality' });
-      }
-      if (addr.quarter && addr.quarter !== addr.city && addr.quarter !== addr.town) {
-        potentialCities.push({ name: addr.quarter, priority: 2, type: 'quarter' });
-      }
-      if (addr.residential && addr.residential !== addr.city && addr.residential !== addr.town) {
-        potentialCities.push({ name: addr.residential, priority: 2, type: 'residential' });
-      }
-      
-      // Priority 3: Municipality names (often the actual city name)
-      if (addr.municipality && addr.municipality !== addr.city && addr.municipality !== addr.town) {
-        potentialCities.push({ name: addr.municipality, priority: 3, type: 'municipality' });
-      }
-      
-      // Priority 4: Suburban/district areas (more specific than administrative regions)
-      if (addr.suburb && addr.suburb !== addr.city && addr.suburb !== addr.town) {
-        potentialCities.push({ name: addr.suburb, priority: 4, type: 'suburb' });
-      }
-      if (addr.neighbourhood && addr.neighbourhood !== addr.city && addr.neighbourhood !== addr.town) {
-        potentialCities.push({ name: addr.neighbourhood, priority: 4, type: 'neighbourhood' });
-      }
-      
-      // Priority 5: County as city name (only if it's not just "County")
-      if (addr.county && addr.county !== addr.city && addr.county !== addr.town && !addr.county.includes('County')) {
-        potentialCities.push({ name: addr.county, priority: 5, type: 'county' });
-      }
-      
-      // Priority 6: State/region as last resort (least specific)
-      if (addr.state && addr.state !== addr.city && addr.state !== addr.town) {
-        potentialCities.push({ name: addr.state, priority: 6, type: 'state_as_city' });
-      }
-      
-      console.log('Nominatim potential cities:', potentialCities);
-      
-      // Filter out overly detailed districts and administrative names
-      const filteredCities = potentialCities.filter(cityObj => {
-        const name = cityObj.name;
-        const isDetailedDistrict = name.includes('-dong') || name.includes('dong,') || 
-                                 name.includes('(') || name.includes(')') ||
-                                 name.includes('Ward') || name.includes('District') ||
-                                 name.includes('Capital') || name.includes('City of') ||
-                                 name.includes('County') || name.includes('Region');
-        return !isDetailedDistrict;
-      });
-      
-      // Choose the most specific city name (lowest priority number = most specific)
-      if (filteredCities.length > 0) {
-        // Sort by priority (lower number = higher priority = more specific)
-        filteredCities.sort((a, b) => a.priority - b.priority);
-        const bestCity = filteredCities[0];
-        city = bestCity.name;
-        console.log('Selected most specific Nominatim city:', city, 'from type:', bestCity.type, 'priority:', bestCity.priority);
-        
-        // Don't use state as city if we found a real city
-        if (bestCity.type === 'state_as_city') {
-          state = ''; // Don't duplicate state
-        } else {
-          // Set state normally if we found a real city
-          if (addr.state && addr.state !== city && !addr.state.includes('Capital') && !addr.state.includes('City of')) {
-            state = addr.state;
-          }
-        }
-      } else if (potentialCities.length > 0) {
-        // Use unfiltered if filtered list is empty
-        potentialCities.sort((a, b) => a.priority - b.priority);
-        const bestCity = potentialCities[0];
-        city = bestCity.name.replace(/^Capital City of /, '');
-        console.log('Selected Nominatim city (unfiltered):', city, 'from type:', bestCity.type);
-        
-        if (bestCity.type === 'state_as_city') {
-          state = '';
-        } else if (addr.state && addr.state !== city) {
+      // Don't use state as city if we found a real city
+      if (bestCity.type === 'state_as_city') {
+        state = ''; // Don't duplicate state
+      } else {
+        // Set state normally if we found a real city
+        if (addr.state && addr.state !== city && !addr.state.includes('Capital') && !addr.state.includes('City of')) {
           state = addr.state;
         }
       }
+    } else if (potentialCities.length > 0) {
+      // Use unfiltered if filtered list is empty
+      potentialCities.sort((a, b) => a.priority - b.priority);
+      const bestCity = potentialCities[0];
+      city = bestCity.name.replace(/^Capital City of /, '');
+      console.log('Selected Nominatim city (unfiltered):', city, 'from type:', bestCity.type);
       
-      // Enhanced redundancy removal for Nominatim
-      if (city && state) {
-        const cityLower = city.toLowerCase();
-        const stateLower = state.toLowerCase();
-        
-        const isRedundant = cityLower === stateLower ||
-                           cityLower.includes(stateLower) || 
-                           stateLower.includes(cityLower) ||
-                           cityLower === stateLower.replace(/\s+(region|province|state|prefecture|district|county)$/, '') ||
-                           stateLower === cityLower.replace(/\s+(region|province|state|prefecture|district|county)$/, '');
-        
-        if (isRedundant) {
-          console.log('Detected Nominatim redundancy between city and state:', city, '/', state);
-          // Prefer the shorter, more specific name
-          if (city.length <= state.length) {
-            state = ''; // Keep city, remove state
-          } else {
-            city = state; // Use state as city
-            state = '';
-          }
-        }
-      }
-      
-      // Additional redundancy check for city-states (Singapore, Monaco, Vatican, etc.)
-      if (city && country) {
-        const cityLower = city.toLowerCase();
-        const countryLower = country.toLowerCase();
-        
-        // Special handling for city-states where city equals country
-        if (cityLower === countryLower) {
-          console.log('Detected city-state redundancy:', city, '==', country);
-          
-          // For city-states like Singapore, check if we have a more specific area/neighborhood
-          // Look for the most specific location that isn't the country name
-          const specificAreas = potentialCities.filter(cityObj => 
-            cityObj.name.toLowerCase() !== countryLower && 
-            cityObj.priority <= 4 // Only consider specific areas, not generic administrative regions
-          );
-          
-          if (specificAreas.length > 0) {
-            // Sort by priority to get the most specific area
-            specificAreas.sort((a, b) => a.priority - b.priority);
-            const specificArea = specificAreas[0];
-            
-            console.log('Found specific area within city-state:', specificArea.name, 'type:', specificArea.type);
-            city = specificArea.name;
-            // Keep country for context (e.g., "Tampines, Singapore")
-            state = ''; // Clear state to avoid triple names
-          } else {
-            // No specific area found, show just the city-state name
-            country = '';
-          }
-        }
-      }
-      
-      // Filter out Israeli districts before assembling final location
-      if (country === 'Israel' && state && state.toLowerCase().includes('district')) {
+      if (bestCity.type === 'state_as_city') {
         state = '';
+      } else if (addr.state && addr.state !== city) {
+        state = addr.state;
       }
+    }
+    
+    // Enhanced redundancy removal for Nominatim
+    if (city && state) {
+      const cityLower = city.toLowerCase();
+      const stateLower = state.toLowerCase();
       
-      const parts = [city, state, country].filter(Boolean);
-      console.log('Nominatim final parts (most specific):', parts);
+      const isRedundant = cityLower === stateLower ||
+                         cityLower.includes(stateLower) || 
+                         stateLower.includes(cityLower) ||
+                         cityLower === stateLower.replace(/\s+(region|province|state|prefecture|district|county)$/, '') ||
+                         stateLower === cityLower.replace(/\s+(region|province|state|prefecture|district|county)$/, '');
       
-      // Store country info for flag display
-      window.currentCountryName = country;
-      window.currentCountryCode = addr.country_code ? addr.country_code.toUpperCase() : null;
+      if (isRedundant) {
+        console.log('Detected Nominatim redundancy between city and state:', city, '/', state);
+        // Prefer the shorter, more specific name
+        if (city.length <= state.length) {
+          state = ''; // Keep city, remove state
+        } else {
+          city = state; // Use state as city
+          state = '';
+        }
+      }
+    }
+    
+    // Additional redundancy check for city-states (Singapore, Monaco, Vatican, etc.)
+    if (city && country) {
+      const cityLower = city.toLowerCase();
+      const countryLower = country.toLowerCase();
       
-      return parts.join(", ");
+      // Special handling for city-states where city equals country
+      if (cityLower === countryLower) {
+        console.log('Detected city-state redundancy:', city, '==', country);
+        
+        // For city-states like Singapore, check if we have a more specific area/neighborhood
+        // Look for the most specific location that isn't the country name
+        const specificAreas = potentialCities.filter(cityObj => 
+          cityObj.name.toLowerCase() !== countryLower && 
+          cityObj.priority <= 4 // Only consider specific areas, not generic administrative regions
+        );
+        
+        if (specificAreas.length > 0) {
+          // Sort by priority to get the most specific area
+          specificAreas.sort((a, b) => a.priority - b.priority);
+          const specificArea = specificAreas[0];
+          
+          console.log('Found specific area within city-state:', specificArea.name, 'type:', specificArea.type);
+          city = specificArea.name;
+          // Keep country for context (e.g., "Tampines, Singapore")
+          state = ''; // Clear state to avoid triple names
+        } else {
+          // No specific area found, show just the city-state name
+          country = '';
+        }
+      }
+    }
+    
+    // Filter out Israeli districts before assembling final location
+    if (country === 'Israel' && state && state.toLowerCase().includes('district')) {
+      state = '';
+    }
+    
+    const parts = [city, state, country].filter(Boolean);
+    console.log('Nominatim final parts (most specific):', parts);
+    
+    // Store country info for flag display
+    window.currentCountryName = country;
+    window.currentCountryCode = addr.country_code ? addr.country_code.toUpperCase() : null;
+    
+    return parts.join(", ");
   }
   
   // Google Weather condition mapping for Open-Meteo weather codes
@@ -802,7 +746,7 @@
     if (absLat >= 45) return lat > 0 ? tempThresholds.northTemperate : tempThresholds.southTemperate;
     if (absLat >= 30) return tempThresholds.midTemperate;
     if (absLat >= 15) return lat > 0 ? tempThresholds.subtropical : tempThresholds.southSubtropical;
-    return lat > 0 ? tempThresholds.tropical : tempThresholds.southTropical;
+    return lat > 0 ? tempThresholds.tropical : tempThresholds.southTemperate;
   }
   
   // Country flag system - maps country names and codes to flag filenames
@@ -1037,6 +981,63 @@
   
   // Add test function to global scope for debugging
   window.testFlag = testFlag;
+  
+  // Enhanced fetch with retry logic
+  async function fetchWithRetry(url, options = {}, retryCount = 0) {
+    let timeoutId; // Move declaration to function scope
+    try {
+      // Create fresh AbortController for each attempt
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 5000); // Reduced to 5 seconds for better responsiveness
+      
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      // Reset retry attempts on success
+      retryAttempts = 0;
+      hasConnectionIssues = false;
+      
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId); // Ensure timeout is cleared on error too
+      console.warn(`Fetch attempt ${retryCount + 1} failed:`, error.message);
+      
+      // Better error categorization
+      const isTimeoutError = error.name === 'AbortError';
+      const isNetworkError = error.name === 'TypeError' || error.message.includes('Failed to fetch') || error.message.includes('ERR_CONNECTION');
+      const isOffline = !navigator.onLine;
+      
+      if (retryCount < maxRetryAttempts && (isTimeoutError || isNetworkError || isOffline)) {
+        hasConnectionIssues = true;
+        const delay = Math.min(1000 * Math.pow(2, retryCount), 8000); // Exponential backoff, max 8 seconds
+        console.log(`Retrying in ${delay}ms...`);
+        
+        return new Promise(resolve => {
+          const timeoutId = setTimeout(async () => {
+            try {
+              const result = await fetchWithRetry(url, options, retryCount + 1);
+              resolve(result);
+            } catch (err) {
+              resolve(Promise.reject(err));
+            }
+          }, delay);
+          retryTimeouts.push(timeoutId);
+        });
+      }
+      
+      throw error;
+    }
+  }
   
   async function fetchWeather(lat, lon){
     try {
@@ -1444,6 +1445,148 @@
     });
   }
   
+  // Method 3: Fallback to IP location with multiple services
+  async function getLocationFromGoogle(){
+    try {
+      const res = await fetchWithRetry("https://www.googleapis.com/geolocation/v1/geolocate?key=" + GOOGLE_GEO_KEY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ considerIp: true })
+      });
+      
+      if (!res.ok) {
+        throw new Error(`Google Geolocation API failed: ${res.status} ${res.statusText}`);
+      }
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        throw new Error(`Google Geolocation API error: ${data.error.message}`);
+      }
+      
+      return {
+        lat: data.location.lat,
+        lon: data.location.lng,
+        source: "IP Location (Google)"
+      };
+    } catch (error) {
+      // Don't log CORS errors as they're expected when opening HTML files locally
+      if (!error.message.includes('CORS') && !error.message.includes('403')) {
+        console.warn('Google IP location failed:', error.message);
+      }
+      throw error;
+    }
+  }
+
+  // Alternative IP location services
+  async function getIPLocationFromIpApi() {
+    try {
+      const res = await fetchWithRetry('https://ip-api.com/json/?fields=status,lat,lon');
+      
+      if (!res.ok) {
+        throw new Error(`IP-API failed: ${res.status} ${res.statusText}`);
+      }
+      
+      const data = await res.json();
+      
+      if (data.status !== 'success') {
+        throw new Error('IP-API request failed');
+      }
+      
+      return {
+        lat: data.lat,
+        lon: data.lon,
+        source: "IP Location (IP-API)"
+      };
+    } catch (error) {
+      // Don't log CORS errors as they're expected when opening HTML files locally
+      if (!error.message.includes('CORS') && !error.message.includes('403')) {
+        console.warn('IP-API location failed:', error.message);
+      }
+      throw error;
+    }
+  }
+
+  async function getIPLocationFromIpInfo() {
+    try {
+      const res = await fetchWithRetry('https://ipinfo.io/json');
+      
+      if (!res.ok) {
+        throw new Error(`IPInfo failed: ${res.status} ${res.statusText}`);
+      }
+      
+      const data = await res.json();
+      
+      if (!data.loc) {
+        throw new Error('IPInfo request failed - no location data');
+      }
+      
+      const [lat, lon] = data.loc.split(',').map(Number);
+      return {
+        lat: lat,
+        lon: lon,
+        source: "IP Location (IPInfo)"
+      };
+    } catch (error) {
+      // Don't log CORS errors as they're expected when opening HTML files locally
+      if (!error.message.includes('CORS') && !error.message.includes('403')) {
+        console.warn('IPInfo location failed:', error.message);
+      }
+      throw error;
+    }
+  }
+
+  async function getIPLocationFromIpApi2() {
+    try {
+      const res = await fetchWithRetry('https://ipapi.co/json/');
+      
+      if (!res.ok) {
+        throw new Error(`IPAPI.co failed: ${res.status} ${res.statusText}`);
+      }
+      
+      const data = await res.json();
+      
+      if (data.error) {
+        throw new Error(`IPAPI.co error: ${data.reason}`);
+      }
+      
+      return {
+        lat: data.latitude,
+        lon: data.longitude,
+        source: "IP Location (IPAPI.co)"
+      };
+    } catch (error) {
+      // Don't log CORS errors as they're expected when opening HTML files locally
+      if (!error.message.includes('CORS') && !error.message.includes('403')) {
+        console.warn('IPAPI.co location failed:', error.message);
+      }
+      throw error;
+    }
+  }
+
+  // Try multiple IP location services in order
+  async function getIPLocation() {
+    const services = [
+      getLocationFromGoogle,
+      getIPLocationFromIpApi,
+      getIPLocationFromIpInfo,
+      getIPLocationFromIpApi2
+    ];
+
+    for (const service of services) {
+      try {
+        const result = await service();
+        console.log('IP location success:', result.source);
+        return result;
+      } catch (error) {
+        console.warn('IP location service failed, trying next...', error);
+        continue;
+      }
+    }
+    
+    throw new Error('All IP location services failed');
+  }
+  
   async function updateLocationAndWeather(showLoadingMessages = true){
     try {
       let locationData = null;
@@ -1462,20 +1605,32 @@
         }
       }
       
-      // Use last known GPS location as fallback (expanded conditions)
-      if (!locationData && lastKnownGPSLocation) {
+      // Try Method 3: IP location fallback
+      if (!locationData) {
+        if (showLoadingMessages) {
+          placeEl.textContent = "Using IP location...";
+        }
+        try {
+          locationData = await getIPLocation();
+        } catch (ipError) {
+          console.error('All IP location services failed:', ipError);
+        }
+      }
+      
+      // Use last known location as final fallback (expanded conditions)
+      if (!locationData && lastKnownLocation) {
         const now = Date.now();
-        const locationAge = now - (lastKnownGPSLocation.timestamp || 0);
+        const locationAge = now - (lastKnownLocation.timestamp || 0);
         
         // Use shorter cache time if GPS is working well (more responsive to location changes)
         const maxCacheAge = gpsSuccessful ? 300000 : 600000; // 5 minutes if GPS works, 10 minutes otherwise
         
-        // Use cached GPS location if it's recent
+        // Use cached location if it's recent
         if (locationAge < maxCacheAge) {
-          locationData = lastKnownGPSLocation;
-          console.log('Using cached GPS location (age:', Math.round(locationAge/60000), 'minutes, GPS successful:', gpsSuccessful, ')');
+          locationData = lastKnownLocation;
+          console.log('Using cached location (age:', Math.round(locationAge/60000), 'minutes, GPS successful:', gpsSuccessful, ')');
         } else {
-          console.log('Cached GPS location expired (age:', Math.round(locationAge/60000), 'minutes, max:', Math.round(maxCacheAge/60000), 'minutes)');
+          console.log('Cached location expired (age:', Math.round(locationAge/60000), 'minutes, max:', Math.round(maxCacheAge/60000), 'minutes)');
         }
       }
       
@@ -1483,9 +1638,9 @@
       if (locationData) {
         // Check if this is a significantly different location (more than ~1km away)
         let isSignificantMove = false;
-        if (lastKnownGPSLocation && lastKnownGPSLocation.lat && lastKnownGPSLocation.lon) {
-          const latDiff = Math.abs(locationData.lat - lastKnownGPSLocation.lat);
-          const lonDiff = Math.abs(locationData.lon - lastKnownGPSLocation.lon);
+        if (lastKnownLocation && lastKnownLocation.lat && lastKnownLocation.lon) {
+          const latDiff = Math.abs(locationData.lat - lastKnownLocation.lat);
+          const lonDiff = Math.abs(locationData.lon - lastKnownLocation.lon);
           const approximateDistance = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff) * 111000; // Rough conversion to meters
           
           if (approximateDistance > 1000) { // More than 1km
@@ -1498,12 +1653,8 @@
           }
         }
         
-        // Only save GPS locations to cache (not IRL Pro data)
-        if (locationData.source.includes('GPS')) {
-          lastKnownGPSLocation = locationData;
-          lastKnownGPSLocation.timestamp = Date.now();
-        }
-        
+        lastKnownLocation = locationData;
+        lastKnownLocation.timestamp = Date.now();
         if (showLoadingMessages) {
           placeEl.textContent = "Loading location...";
         }
@@ -1549,27 +1700,35 @@
         // Always try to fetch weather regardless of geocoding success
         fetchWeather(locationData.lat, locationData.lon);
       } else {
-        // During silent refreshes, don't immediately show "GPS N/A" - keep existing display
+        // During silent refreshes, don't immediately show "Location N/A" - keep existing display
         if (showLoadingMessages) {
-          // Only show "GPS N/A" during initial load or user-initiated refresh
-          console.error('No GPS data available from any source');
-          placeEl.textContent = "GPS N/A";
-          
-          // Show fallback location icon when no location data
-          const flagImg = document.getElementById('country-flag');
-          const fallbackIcon = document.getElementById('location-fallback');
-          if (flagImg && fallbackIcon) {
-            flagImg.style.display = 'none';
-            fallbackIcon.style.display = 'inline-block';
+          // Use cached location name if available, even when no location data
+          if (lastLocationName) {
+            console.log('No location data but using cached location name');
+            placeEl.textContent = lastLocationName;
+            
+            // Try to use cached country info for flag if available
+            if (window.currentCountryName || window.currentCountryCode) {
+              updateCountryFlag(window.currentCountryName, window.currentCountryCode);
+            }
+          } else {
+            // Only show "Location N/A" during initial load or user-initiated refresh with no cache
+            console.error('No location data available from any source');
+            placeEl.textContent = "Location N/A";
+            
+            // Show fallback location icon when no location data
+            const flagImg = document.getElementById('country-flag');
+            const fallbackIcon = document.getElementById('location-fallback');
+            if (flagImg && fallbackIcon) {
+              flagImg.style.display = 'none';
+              fallbackIcon.style.display = 'inline-block';
+            }
           }
           
           // Don't immediately clear weather - let the weather fetch handle caching
           if (!lastWeatherData) {
             weatherEl.textContent = "Weather N/A";
           }
-        } else {
-          // During silent refresh failures, just log the issue but keep existing display
-          console.log('Silent location refresh failed, keeping existing display');
         }
       }
       
@@ -1587,8 +1746,8 @@
             updateCountryFlag(window.currentCountryName, window.currentCountryCode);
           }
         } else {
-          // Only show "GPS N/A" if no cached name is available
-          placeEl.textContent = "GPS N/A";
+          // Only show "Location N/A" if no cached name is available
+          placeEl.textContent = "Location N/A";
           
           // Show fallback location icon when no location data
           const flagImg = document.getElementById('country-flag');
@@ -1647,7 +1806,7 @@
     console.log('🔄 Clearing all location caches...');
     
     // Clear all cached location data
-    lastKnownGPSLocation = null;
+    lastKnownLocation = null;
     lastLocationName = null;
     lastLocationTimestamp = 0;
     lastWeatherData = null;
@@ -1695,8 +1854,8 @@
     console.log('🔄 Forcing location refresh...');
     
     // Expire current location cache to force new lookup
-    if (lastKnownGPSLocation) {
-      lastKnownGPSLocation.timestamp = Date.now() - 700000; // Make it older than 10 minutes
+    if (lastKnownLocation) {
+      lastKnownLocation.timestamp = Date.now() - 700000; // Make it older than 10 minutes
     }
     
     // Reset GPS state to allow fresh attempts
