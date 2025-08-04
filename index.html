@@ -559,7 +559,7 @@
   }
   
   async function reverseGeocodeWithNominatim(lat, lon) {
-    const res = await fetchWithRetry(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en&addressdetails=1&extratags=1`);
+    const res = await fetchWithRetry(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en-US,en;q=0.9&addressdetails=1&extratags=1`);
       const geo = await res.json();
       const addr = geo.address;
       
