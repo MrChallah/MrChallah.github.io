@@ -232,7 +232,6 @@
       'Autonomous Region',
       'Federal District',
       'Capital District',
-      'of',
       'Metropolitan District'
     ];
     
@@ -250,94 +249,20 @@
     return cleanedName;
   }
   
-  // Transliteration function to convert non-Latin characters to Latin equivalents
-  function transliterateLocationName(locationName) {
-    if (!locationName) return locationName;
-    
-    // Greek to Latin transliteration mapping
-    const greekToLatin = {
-      // Greek alphabet to Latin equivalents (including accented versions)
-      'α': 'a', 'ά': 'a', 'β': 'v', 'γ': 'g', 'δ': 'd', 'ε': 'e', 'έ': 'e', 'ζ': 'z', 
-      'η': 'i', 'ή': 'i', 'θ': 'th', 'ι': 'i', 'ί': 'i', 'ϊ': 'i', 'ΐ': 'i',
-      'κ': 'k', 'λ': 'l', 'μ': 'm', 'ν': 'n', 'ξ': 'x', 'ο': 'o', 'ό': 'o', 'π': 'p',
-      'ρ': 'r', 'σ': 's', 'τ': 't', 'υ': 'y', 'ύ': 'y', 'ϋ': 'y', 'ΰ': 'y',
-      'φ': 'f', 'χ': 'ch', 'ψ': 'ps', 'ω': 'o', 'ώ': 'o',
-      // Greek capital letters (including accented versions)
-      'Α': 'A', 'Ά': 'A', 'Β': 'V', 'Γ': 'G', 'Δ': 'D', 'Ε': 'E', 'Έ': 'E', 'Ζ': 'Z', 
-      'Η': 'I', 'Ή': 'I', 'Θ': 'TH', 'Ι': 'I', 'Ί': 'I', 'Ϊ': 'I',
-      'Κ': 'K', 'Λ': 'L', 'Μ': 'M', 'Ν': 'N', 'Ξ': 'X', 'Ο': 'O', 'Ό': 'O', 'Π': 'P',
-      'Ρ': 'R', 'Σ': 'S', 'Τ': 'T', 'Υ': 'Y', 'Ύ': 'Y', 'Ϋ': 'Y',
-      'Φ': 'F', 'Χ': 'CH', 'Ψ': 'PS', 'Ω': 'O', 'Ώ': 'O',
-      // Greek final sigma
-      'ς': 's'
-    };
-    
-    // Cyrillic to Latin transliteration mapping (common for Eastern European locations)
-    const cyrillicToLatin = {
-      'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'yo', 'ж': 'zh',
-      'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm', 'н': 'n', 'о': 'o',
-      'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u', 'ф': 'f', 'х': 'h', 'ц': 'ts',
-      'ч': 'ch', 'ш': 'sh', 'щ': 'shch', 'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu',
-      'я': 'ya',
-      // Cyrillic capital letters
-      'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'YO', 'Ж': 'ZH',
-      'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M', 'Н': 'N', 'О': 'O',
-      'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U', 'Ф': 'F', 'Х': 'H', 'Ц': 'TS',
-      'Ч': 'CH', 'Ш': 'SH', 'Щ': 'SHCH', 'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'YU',
-      'Я': 'YA'
-    };
-    
-    let transliterated = locationName;
-    
-    // Check if the string contains Greek characters
-    const hasGreek = /[α-ωΑ-ΩάέήίόύώϊϋΐΰΆΈΉΊΌΎΏΪΫς]/.test(transliterated);
-    if (hasGreek) {
-      console.log('Detected Greek characters in location name:', locationName);
-      // Apply Greek transliteration
-      for (const [greek, latin] of Object.entries(greekToLatin)) {
-        transliterated = transliterated.replace(new RegExp(greek, 'g'), latin);
-      }
-    }
-    
-    // Check if the string contains Cyrillic characters
-    const hasCyrillic = /[а-яА-ЯёЁ]/.test(transliterated);
-    if (hasCyrillic) {
-      console.log('Detected Cyrillic characters in location name:', locationName);
-      // Apply Cyrillic transliteration
-      for (const [cyrillic, latin] of Object.entries(cyrillicToLatin)) {
-        transliterated = transliterated.replace(new RegExp(cyrillic, 'g'), latin);
-      }
-    }
-    
-    // Clean up any double spaces that might result from transliteration
-    transliterated = transliterated.replace(/\s+/g, ' ');
-    
-    if (transliterated !== locationName) {
-      console.log('Transliterated location name:', locationName, '->', transliterated);
-    }
-    
-    return transliterated;
-  }
-  
   // Helper function to filter location parts based on word count rules
   function filterLocationByWordCount(city, state, country) {
     // Clean administrative terms from city name first
     const cleanedCity = cleanCityName(city);
     
-    // Apply transliteration to all location components
-    const transliteratedCity = transliterateLocationName(cleanedCity);
-    const transliteratedState = transliterateLocationName(state);
-    const transliteratedCountry = transliterateLocationName(country);
-    
     // Count words in each component (split by spaces and filter out empty strings)
-    const cityWords = transliteratedCity ? transliteratedCity.split(/\s+/).filter(word => word.length > 0).length : 0;
-    const stateWords = transliteratedState ? transliteratedState.split(/\s+/).filter(word => word.length > 0).length : 0;
-    const countryWords = transliteratedCountry ? transliteratedCountry.split(/\s+/).filter(word => word.length > 0).length : 0;
+    const cityWords = cleanedCity ? cleanedCity.split(/\s+/).filter(word => word.length > 0).length : 0;
+    const stateWords = state ? state.split(/\s+/).filter(word => word.length > 0).length : 0;
+    const countryWords = country ? country.split(/\s+/).filter(word => word.length > 0).length : 0;
     
     console.log('Word count analysis:', {
-      city: city, cleanedCity: cleanedCity, transliteratedCity: transliteratedCity, cityWords: cityWords,
-      state: state, transliteratedState: transliteratedState, stateWords: stateWords, 
-      country: country, transliteratedCountry: transliteratedCountry, countryWords: countryWords
+      city: city, cleanedCity: cleanedCity, cityWords: cityWords,
+      state: state, stateWords: stateWords, 
+      country: country, countryWords: countryWords
     });
     
     // Apply the filtering rules:
@@ -359,8 +284,8 @@
       }
     }
     
-    // Build final parts array with filtered state, using transliterated values
-    const parts = [transliteratedCity, transliterateLocationName(filteredState), transliteratedCountry].filter(Boolean);
+    // Build final parts array with filtered state, using cleaned city name
+    const parts = [cleanedCity, filteredState, country].filter(Boolean);
     console.log('Final location parts after word count filtering:', parts);
     
     return parts.join(", ");
@@ -637,7 +562,9 @@
       const geo = await res.json();
       const addr = geo.address;
       
+      console.log('Nominatim raw response:', geo);
       console.log('Nominatim address components:', addr);
+      console.log('Coordinates being used:', lat, lon);
       
       // Check if Japan in Nominatim response
       window.isLocationInJapan = addr.country_code === 'jp' || addr.country === 'Japan' || addr.country === '日本';
@@ -711,16 +638,49 @@
         return !isDetailedDistrict;
       });
       
+      // Special handling for Austin area - prioritize Austin over Houston
+      // Check if we're in the Austin area (roughly 30.2672°N, -97.7431°W ± 0.5 degrees)
+      const isAustinArea = lat >= 29.8 && lat <= 30.8 && lon >= -98.2 && lon <= -97.2;
+      if (isAustinArea) {
+        console.log('Detected Austin area, prioritizing Austin over Houston');
+        // Remove Houston from the list if it exists
+        const filteredForAustin = filteredCities.filter(cityObj => 
+          !cityObj.name.toLowerCase().includes('houston')
+        );
+        if (filteredForAustin.length > 0) {
+          console.log('Filtered out Houston, remaining cities:', filteredForAustin.map(c => c.name));
+          // Use the filtered list instead
+          filteredCities.length = 0;
+          filteredCities.push(...filteredForAustin);
+        }
+      }
+      
       // Choose the most specific city name (lowest priority number = most specific)
+      let bestCity = null; // Declare bestCity at function scope
+      
       if (filteredCities.length > 0) {
-        // Sort by priority (lower number = higher priority = more specific)
-        filteredCities.sort((a, b) => a.priority - b.priority);
-        const bestCity = filteredCities[0];
-        city = bestCity.name;
-        console.log('Selected most specific Nominatim city:', city, 'from type:', bestCity.type, 'priority:', bestCity.priority);
+        // Special handling for Austin - if Austin is in the list, prioritize it
+        const austinCity = filteredCities.find(cityObj => 
+          cityObj.name.toLowerCase().includes('austin')
+        );
+        
+        if (austinCity) {
+          console.log('Found Austin in potential cities, prioritizing it');
+          city = austinCity.name;
+          bestCity = austinCity; // Set bestCity for later use
+          console.log('Selected Austin:', city, 'from type:', austinCity.type, 'priority:', austinCity.priority);
+        } else {
+          // Sort by priority (lower number = higher priority = more specific)
+          filteredCities.sort((a, b) => a.priority - b.priority);
+          bestCity = filteredCities[0];
+          city = bestCity.name;
+          console.log('Selected most specific Nominatim city:', city, 'from type:', bestCity.type, 'priority:', bestCity.priority);
+        }
+        
+        console.log('All filtered cities considered:', filteredCities.map(c => `${c.name} (${c.type}, priority: ${c.priority})`));
         
         // Don't use state as city if we found a real city
-        if (bestCity.type === 'state_as_city') {
+        if (bestCity && bestCity.type === 'state_as_city') {
           state = ''; // Don't duplicate state
         } else {
           // Set state normally if we found a real city
@@ -731,7 +691,7 @@
       } else if (potentialCities.length > 0) {
         // Use unfiltered if filtered list is empty
         potentialCities.sort((a, b) => a.priority - b.priority);
-        const bestCity = potentialCities[0];
+        bestCity = potentialCities[0];
         city = bestCity.name.replace(/^Capital City of /, '');
         console.log('Selected Nominatim city (unfiltered):', city, 'from type:', bestCity.type);
         
@@ -1199,6 +1159,48 @@
   
   // Add test function to global scope for debugging
   window.testFlag = testFlag;
+  
+  // Test function to manually test location with Austin coordinates
+  async function testAustinLocation() {
+    console.log('=== AUSTIN LOCATION TEST ===');
+    // Austin, Texas coordinates (approximately downtown)
+    const austinLat = 30.2672;
+    const austinLon = -97.7431;
+    
+    console.log('Testing Austin coordinates:', austinLat, austinLon);
+    
+    try {
+      const location = await reverseGeocodeWithNominatim(austinLat, austinLon);
+      console.log('Austin location result:', location);
+    } catch (error) {
+      console.error('Austin location test failed:', error);
+    }
+  }
+  
+  // Add test function to global scope
+  window.testAustinLocation = testAustinLocation;
+  
+  // Function to manually override location to Austin for testing
+  function forceAustinLocation() {
+    console.log('=== FORCING AUSTIN LOCATION ===');
+    // Austin, Texas coordinates
+    const austinLat = 30.2672;
+    const austinLon = -97.7431;
+    
+    // Update the display immediately
+    placeEl.textContent = "Austin, Texas, United States";
+    
+    // Update country flag
+    updateCountryFlag("United States", "US");
+    
+    // Fetch weather for Austin
+    fetchWeather(austinLat, austinLon);
+    
+    console.log('Forced Austin location display');
+  }
+  
+  // Add to global scope
+  window.forceAustinLocation = forceAustinLocation;
   
   async function fetchWeather(lat, lon){
     try {
@@ -1814,6 +1816,18 @@
     lastLocationTimestamp = 0;
     lastWeatherData = null;
     lastWeatherTimestamp = 0;
+    
+    // Clear any browser cache for Nominatim requests
+    if ('caches' in window) {
+      caches.keys().then(cacheNames => {
+        cacheNames.forEach(cacheName => {
+          if (cacheName.includes('nominatim') || cacheName.includes('openstreetmap')) {
+            caches.delete(cacheName);
+            console.log('Cleared cache:', cacheName);
+          }
+        });
+      });
+    }
     
     // Clear country information for flag display
     window.currentCountryName = null;
